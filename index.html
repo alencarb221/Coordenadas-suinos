@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rota Suína | Planejamento logístico</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">RS</div>
+        <div>
+          <strong>Rota Suína</strong>
+          <span>Logística integrada</span>
+        </div>
+      </div>
+
+      <nav class="main-nav" aria-label="Navegação principal">
+        <p class="nav-label">Operação</p>
+        <a class="nav-item active" data-view="rota" href="#rota"><span class="nav-icon">⌁</span>Planejar rota</a>
+        <a class="nav-item" data-view="integratedView" href="#integrados"><span class="nav-icon">⌖</span>Integrados <span class="nav-count">146</span></a>
+        <a class="nav-item" href="#mapa"><span class="nav-icon">◈</span>Mapa de granjas</a>
+        <p class="nav-label secondary-label">Gestão</p>
+        <a class="nav-item" href="#relatorios"><span class="nav-icon">▤</span>Relatórios</a>
+        <a class="nav-item disabled" href="#racao"><span class="nav-icon">◌</span>Programação de ração <em>em breve</em></a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-dot"></div>
+        <div><strong>Base São Miguel do Oeste</strong><span>Dados locais carregados</span></div>
+      </div>
+    </aside>
+
+    <main class="content" id="routeView">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Planejamento de entregas</p>
+          <h1>Encontre a melhor combinação</h1>
+          <p class="subtitle">Compare integrados no mesmo trajeto a partir da fábrica de ração.</p>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" title="Notificações" aria-label="Notificações">♢</button>
+          <div class="user-avatar">AS</div>
+        </div>
+      </header>
+
+      <section class="route-workspace">
+        <div class="control-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Nova análise</span>
+              <h2>Monte sua rota</h2>
+            </div>
+            <span class="draft-badge">Rascunho</span>
+          </div>
+
+          <div class="form-stack">
+            <label class="field-label" for="origin">Ponto de saída</label>
+            <div class="select-wrap origin-select">
+              <span class="field-icon">●</span>
+              <select id="origin">
+                <option>Fábrica de ração · São Miguel do Oeste</option>
+              </select>
+            </div>
+
+            <div class="route-divider"><span>1</span><i></i></div>
+
+            <label class="field-label" for="primary">Integrado principal</label>
+            <div class="select-wrap autocomplete-wrap">
+              <span class="field-icon target-icon">⌖</span>
+              <input id="primary" list="farmOptions" autocomplete="off" placeholder="Digite o nome do integrado">
+            </div>
+
+            <div class="candidate-header">
+              <label class="field-label" for="candidate">Possíveis combinações</label>
+              <span class="candidate-count">0 selecionados</span>
+            </div>
+            <div id="candidateFields">
+              <div class="candidate-entry">
+                <div class="select-wrap autocomplete-wrap">
+                  <span class="field-icon candidate-icon">+</span>
+                  <input class="candidate-input" id="candidate" list="farmOptions" autocomplete="off" placeholder="Digite para adicionar">
+                </div>
+                <button class="add-button add-candidate" type="button" title="Adicionar integrado" aria-label="Adicionar integrado">+</button>
+              </div>
+            </div>
+            <button class="add-field-button" id="addSearchField" type="button">+ Adicionar outro campo de busca</button>
+            <datalist id="farmOptions"></datalist>
+            <div class="selected-list" id="selectedList"></div>
+          </div>
+
+          <div class="manual-distance-panel">
+            <div class="section-title-row compact-row"><div><span class="section-kicker">Medição</span><h3>Distância entre pontos</h3></div></div>
+            <div class="point-grid">
+              <article class="point-card">
+                <div class="point-head"><span class="point-badge point-badge-one">Ponto 1</span></div>
+                <label>Latitude<input id="manualPoint1Lat" type="number" step="any" placeholder="-26.000000"></label>
+                <label>Longitude<input id="manualPoint1Lng" type="number" step="any" placeholder="-53.000000"></label>
+                <button class="mini-button set-manual-point" data-point="1" type="button">Definir no mapa</button>
+              </article>
+              <article class="point-card">
+                <div class="point-head"><span class="point-badge point-badge-two">Ponto 2</span></div>
+                <label>Latitude<input id="manualPoint2Lat" type="number" step="any" placeholder="-27.000000"></label>
+                <label>Longitude<input id="manualPoint2Lng" type="number" step="any" placeholder="-53.500000"></label>
+                <button class="mini-button set-manual-point" data-point="2" type="button">Definir no mapa</button>
+              </article>
+            </div>
+            <div class="manual-distance-summary">
+              <span class="distance-label">Distância</span>
+              <strong id="manualDistanceValue">—</strong>
+              <small>km</small>
+            </div>
+            <button class="quiet-button" id="clearManualPoints" type="button">Limpar pontos</button>
+          </div>
+
+          <button class="primary-button" id="analyzeRoute" type="button"><span>✦</span> Analisar combinação</button>
+          <button class="quiet-button" id="clearRoute" type="button">Limpar seleção</button>
+        </div>
+
+        <div class="map-panel" id="mapa">
+          <div class="map-toolbar">
+            <div class="map-title"><span class="live-dot"></span><strong>Visão geral</strong><span>São Miguel do Oeste, SC</span></div>
+            <div class="map-actions">
+              <button class="map-layer" id="factoryButton" type="button" title="Centralizar na fábrica">⌾ Fábrica</button>
+              <button class="map-layer" id="satelliteToggle" type="button">Satélite</button>
+            </div>
+          </div>
+          <div id="map" aria-label="Mapa das granjas e da fábrica"></div>
+          <div class="map-legend">
+            <span><i class="legend-origin"></i> Fábrica</span>
+            <span><i class="legend-primary"></i> A · Principal</span>
+            <span><i class="legend-candidate"></i> B · Combinação</span>
+            <span><i class="legend-route"></i> Rota até A</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="insight-section" aria-label="Resumo da análise">
+        <div class="section-title-row"><div><span class="section-kicker">Resumo da análise</span><h2>Pronto para comparar</h2></div><span class="updated" id="analysisStatus">Aguardando seleção</span></div>
+        <div class="metric-grid" id="metricGrid">
+          <article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>— <small>km</small></strong><span class="metric-note">Selecione o integrado principal</span></article>
+          <article class="metric-card"><span class="metric-label">Tempo até A</span><strong>—</strong><span class="metric-note">Calculado pela estrada</span></article>
+          <article class="metric-card accent-card"><span class="metric-label">Rota combinada</span><strong>— <small>km</small></strong><span class="metric-note">Inclui os pontos B</span></article>
+          <article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>— <small>km</small></strong><span class="metric-note">Soma dos trechos entre A e B</span></article>
+        </div>
+        <div class="route-details" id="routeDetails">
+          <div class="empty-results">As distâncias entre a fábrica, os pontos B e o ponto A aparecerão aqui.</div>
+        </div>
+        <div class="suggestions-card" id="suggestionsCard" hidden>
+          <div class="suggestions-heading"><div><span class="section-kicker">Oportunidades no trajeto</span><h3>Novas possibilidades para esta rota</h3></div><span class="suggestions-count" id="suggestionsCount"></span></div>
+          <p class="suggestions-intro">Integrados localizados a no máximo 10 km do caminho entre a fábrica, os pontos B e o ponto A.</p>
+          <div class="suggestions-list" id="suggestionsList"></div>
+        </div>
+      </section>
+
+      <div class="modal-backdrop" id="integratedModal" hidden>
+        <form class="integrated-modal" id="integratedForm">
+          <div class="modal-header"><div><span class="section-kicker">Cadastro</span><h2 id="modalTitle">Novo integrado</h2></div><button class="modal-close" id="closeModal" type="button" aria-label="Fechar">×</button></div>
+          <input id="integratedId" type="hidden">
+          <div class="integrated-form-grid">
+            <label>Nome<input id="integratedName" required></label>
+            <label>Cidade<input id="integratedCity" required></label>
+            <label>Latitude<input id="integratedLatitude" type="number" step="any" min="-34" max="-25" required></label>
+            <label>Longitude<input id="integratedLongitude" type="number" step="any" min="-58" max="-48" required></label>
+          </div>
+          <p class="form-error" id="integratedFormError" role="alert"></p>
+          <div class="modal-actions"><button class="quiet-button" id="cancelModal" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar integrado</button></div>
+        </form>
+      </div>
+    </main>
+
+    <section class="integrated-view" id="integratedView" hidden>
+      <header class="topbar integrated-topbar">
+        <div>
+          <p class="eyebrow">Base cadastral</p>
+          <h1>Integrados</h1>
+          <p class="subtitle">Consulte e mantenha os pontos usados no mapa e nas rotas.</p>
+        </div>
+        <button class="primary-button header-button" id="newIntegrated" type="button"><span>+</span> Novo integrado</button>
+      </header>
+      <div class="integrated-toolbar">
+        <div class="search-control"><span>⌕</span><input id="integratedSearch" type="search" placeholder="Buscar por nome ou cidade"></div>
+        <span class="integrated-total" id="integratedTotal"></span>
+      </div>
+      <div class="table-wrap integrated-table-wrap">
+        <table><thead><tr><th>Integrado</th><th>Cidade</th><th>Latitude</th><th>Longitude</th><th>Ações</th></tr></thead>
+          <tbody id="integratedTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="dados-integrados.js"></script>
+  <script src="app.js?v=20260822-14"></script>
+</body>
+</html>
