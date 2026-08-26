@@ -159,6 +159,23 @@ function integratedName(name) {
     .trim();
 }
 
+function googleMapsPointUrl([latitude, longitude]) {
+  return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+}
+
+function googleMapsDirectionsUrl(points) {
+  const [start, ...rest] = points;
+  const destination = rest[rest.length - 1];
+  const waypoints = rest.slice(0, -1);
+  const url = new URL('https://www.google.com/maps/dir/');
+  url.searchParams.set('api', '1');
+  url.searchParams.set('origin', start.join(','));
+  url.searchParams.set('destination', destination.join(','));
+  if (waypoints.length) url.searchParams.set('waypoints', waypoints.map((point) => point.join(',')).join('|'));
+  url.searchParams.set('travelmode', 'driving');
+  return url.toString();
+}
+
 async function loadFarms() {
   const savedFarms = loadCustomFarms();
   if (window.location.protocol === 'file:' && Array.isArray(window.INTEGRATED_DATA)) {
@@ -192,7 +209,7 @@ function renderIntegratedTable() {
   const query = normalizeText(document.getElementById('integratedSearch')?.value);
   const visibleFarms = farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
   document.getElementById('integratedTotal').textContent = `${visibleFarms.length} de ${farms.length} integrados`;
-  body.innerHTML = visibleFarms.map((farm) => `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.coords[0].toFixed(6)}</td><td>${farm.coords[1].toFixed(6)}</td><td class="table-actions"><button class="table-action edit-integrated" type="button" data-name="${escapeHtml(farm.name)}">Editar</button><button class="table-action delete-integrated" type="button" data-name="${escapeHtml(farm.name)}">Excluir</button></td></tr>`).join('');
+  body.innerHTML = visibleFarms.map((farm) => `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.coords[0].toFixed(6)}</td><td>${farm.coords[1].toFixed(6)}</td><td><a class="table-action" href="${googleMapsPointUrl(farm.coords)}" target="_blank" rel="noopener">Google Maps</a></td><td class="table-actions"><button class="table-action edit-integrated" type="button" data-name="${escapeHtml(farm.name)}">Editar</button><button class="table-action delete-integrated" type="button" data-name="${escapeHtml(farm.name)}">Excluir</button></td></tr>`).join('');
 }
 
 function openIntegratedModal(farm) {
@@ -324,6 +341,7 @@ async function drawRoute(points, className) {
       usedFallback: false
     };
   } catch (error) {
+    console.error('Erro ao consultar o roteador OSRM, exibindo linha reta como aproximação:', error);
     return {
       layer: createRoutePolyline(points, className, '#2475b9', className === 'route-combined' ? 5 : 3, className === 'route-combined' ? .95 : .58, className === 'route-combined' ? null : '8 8'),
       distance: null,
@@ -345,6 +363,7 @@ async function drawAlternativeRoute(points, className = 'route-alternative') {
       duration: alternative.duration
     };
   } catch (error) {
+    console.error('Erro ao consultar rota alternativa no OSRM:', error);
     return null;
   }
 }
@@ -470,6 +489,13 @@ function renderRouteDetails(stops, legs, direct, combined) {
 }
 
 document.getElementById('factoryButton').addEventListener('click', () => map.flyTo(origin, 11, { duration: .7 }));
+
+document.getElementById('openInGoogleMaps').addEventListener('click', () => {
+  const primaryFarm = findFarm(primaryInput.value);
+  if (!primaryFarm) { window.alert('Selecione o integrado principal antes de abrir no Google Maps.'); return; }
+  const points = [origin, ...selected.map((farm) => farm.coords), primaryFarm.coords];
+  window.open(googleMapsDirectionsUrl(points), '_blank', 'noopener');
+});
 
 document.getElementById('satelliteToggle').addEventListener('click', (event) => {
   satelliteActive = !satelliteActive;
@@ -608,8 +634,11 @@ document.getElementById('analyzeRoute').addEventListener('click', async () => {
       legs.push({ from: stops[index], to: stops[index + 1], fromRole: stops[index].role, toRole: stops[index + 1].role, distance: result.distance, duration: result.duration, usedFallback: result.usedFallback });
     }
     renderRouteDetails(stops, legs, directResult, combinedResult);
-    if (directResult.usedFallback || combinedResult.usedFallback || legs.some((leg) => leg.usedFallback)) {
-      document.getElementById('analysisStatus').textContent = 'Rota aproximada: serviço indisponível';
+    const analysisStatus = document.getElementById('analysisStatus');
+    const hadFallback = directResult.usedFallback || combinedResult.usedFallback || legs.some((leg) => leg.usedFallback);
+    analysisStatus.classList.toggle('status-warning', hadFallback);
+    if (hadFallback) {
+      analysisStatus.textContent = 'Serviço de rotas indisponível: exibindo linha reta e sem km/tempo';
     }
     renderSuggestions(stops);
     if (alternativeResult) alternativeResult.layer.bringToFront();
