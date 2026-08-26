@@ -27,7 +27,10 @@ function parseCoordinate(value) {
 }
 
 function integratedName(name) {
-  return String(name || '').replace(/\s*-\s*GP\s*\d+\s*$/i, '').replace(/\s+TP\s*\d+\s*$/i, '').trim();
+  return String(name || '')
+    .replace(/\s*(?:-\s*)?(?:\(\s*)?GP\s*0*\d+\s*(?:\))?\s*$/i, '')
+    .replace(/\s+TP\s*\d+\s*$/i, '')
+    .trim();
 }
 
 const unique = new Map();

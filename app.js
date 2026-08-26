@@ -21,7 +21,9 @@ const selectedList = document.getElementById('selectedList');
 const candidateCount = document.querySelector('.candidate-count');
 const selected = [];
 let farmsLoaded = false;
+let routeAnalysisInProgress = false;
 const customFarmStorageKey = 'rota-suina-integrados-customizados';
+let baseFarms = [];
 const farmMarkers = L.layerGroup().addTo(map);
 let farmRefreshQueued = false;
 let manualPointSelection = null;
@@ -39,11 +41,53 @@ function createFarmIcon(farm) {
 }
 
 function loadCustomFarms() {
-  try { return JSON.parse(localStorage.getItem(customFarmStorageKey) || '[]'); } catch (error) { return []; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(customFarmStorageKey) || '{}');
+    if (Array.isArray(saved)) return { legacyFarms: saved, overrides: [], deleted: [] };
+    return {
+      legacyFarms: [],
+      overrides: Array.isArray(saved.overrides) ? saved.overrides : [],
+      deleted: Array.isArray(saved.deleted) ? saved.deleted : []
+    };
+  } catch (error) {
+    return { legacyFarms: [], overrides: [], deleted: [] };
+  }
 }
 
 function saveCustomFarms() {
-  localStorage.setItem(customFarmStorageKey, JSON.stringify(farms));
+  const baseByName = new Map(baseFarms.map((farm) => [normalizeText(farm.name), farm]));
+  const currentNames = new Set(farms.map((farm) => normalizeText(farm.name)));
+  const overrides = farms.filter((farm) => {
+    const original = baseByName.get(normalizeText(farm.name));
+    return !original || JSON.stringify(original) !== JSON.stringify(farm);
+  });
+  const deleted = baseFarms
+    .filter((farm) => !currentNames.has(normalizeText(farm.name)))
+    .map((farm) => farm.name);
+  localStorage.setItem(customFarmStorageKey, JSON.stringify({ overrides, deleted }));
+}
+
+function applySavedFarms(saved) {
+  const farmsByName = new Map(baseFarms.map((farm) => [normalizeText(farm.name), farm]));
+  if (saved.legacyFarms.length) {
+    const legacyByName = new Map(saved.legacyFarms.map((farm) => {
+      const normalizedFarm = { ...farm, name: integratedName(farm.name) };
+      return [normalizeText(normalizedFarm.name), normalizedFarm];
+    }));
+    legacyByName.forEach((farm, name) => {
+      const original = farmsByName.get(name);
+      if (!original || JSON.stringify(original) !== JSON.stringify(farm)) farmsByName.set(name, farm);
+    });
+    baseFarms.forEach((farm) => {
+      if (!legacyByName.has(normalizeText(farm.name))) farmsByName.delete(normalizeText(farm.name));
+    });
+  }
+  saved.overrides.forEach((farm) => {
+    const normalizedFarm = { ...farm, name: integratedName(farm.name) };
+    farmsByName.set(normalizeText(normalizedFarm.name), normalizedFarm);
+  });
+  saved.deleted.forEach((name) => farmsByName.delete(normalizeText(integratedName(name))));
+  return [...farmsByName.values()];
 }
 
 function refreshFarmSources() {
@@ -54,7 +98,7 @@ function refreshFarmSources() {
     const option = document.createElement('option');
     option.value = `${farm.name} · ${farm.city}`;
     farmOptions.appendChild(option);
-    L.marker(farm.coords, { icon: createFarmIcon(farm) }).addTo(farmMarkers).bindTooltip(`${farm.name} · ${farm.city}`);
+    L.marker(farm.coords, { icon: createFarmIcon(farm) }).addTo(farmMarkers).bindTooltip(`${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`);
   });
   document.querySelector('.nav-count').textContent = farms.length;
   document.querySelector('.draft-badge').textContent = `${farms.length} pontos carregados`;
@@ -74,10 +118,10 @@ function renderMapSelection() {
   selectionLayer.clearLayers();
   const primaryFarm = findFarm(primaryInput.value);
   if (primaryFarm) {
-    L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${primaryFarm.name} · ${primaryFarm.city}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+    L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
   }
   selected.forEach((farm) => {
-    L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${farm.name} · ${farm.city}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+    L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
   });
   renderManualDistance();
 }
@@ -109,7 +153,10 @@ function parseCoordinate(value) {
 }
 
 function integratedName(name) {
-  return String(name || '').replace(/\s*-\s*GP\s*\d+\s*$/i, '').replace(/\s+TP\s*\d+\s*$/i, '').trim();
+  return String(name || '')
+    .replace(/\s*(?:-\s*)?(?:\(\s*)?GP\s*0*\d+\s*(?:\))?\s*$/i, '')
+    .replace(/\s+TP\s*\d+\s*$/i, '')
+    .trim();
 }
 
 async function loadFarms() {
@@ -131,7 +178,8 @@ async function loadFarms() {
     });
     farms = [...unique.values()];
   }
-  farms = savedFarms.length ? savedFarms : farms;
+  baseFarms = farms;
+  farms = applySavedFarms(savedFarms);
   refreshFarmSources();
   farmsLoaded = true;
   primaryInput.placeholder = 'Digite o nome do integrado';
@@ -247,10 +295,16 @@ function routeCoordinates(points) {
 
 async function fetchRouteData(points, includeAlternatives = false) {
   const url = `https://router.project-osrm.org/route/v1/driving/${routeCoordinates(points)}?overview=full&geometries=geojson&alternatives=${includeAlternatives}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('Falha no roteador');
-  const data = await response.json();
-  return data.routes || [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error('Falha no roteador');
+    const data = await response.json();
+    return data.routes || [];
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function createRoutePolyline(geometry, className, color, weight, opacity, dashArray) {
@@ -266,13 +320,15 @@ async function drawRoute(points, className) {
     return {
       layer: createRoutePolyline(geometry, className, '#2475b9', className === 'route-combined' ? 5 : 3, className === 'route-combined' ? .95 : .58, className === 'route-combined' ? null : '8 8'),
       distance: route.distance,
-      duration: route.duration
+      duration: route.duration,
+      usedFallback: false
     };
   } catch (error) {
     return {
       layer: createRoutePolyline(points, className, '#2475b9', className === 'route-combined' ? 5 : 3, className === 'route-combined' ? .95 : .58, className === 'route-combined' ? null : '8 8'),
       distance: null,
-      duration: null
+      duration: null,
+      usedFallback: true
     };
   }
 }
@@ -407,8 +463,8 @@ function renderRouteDetails(stops, legs, direct, combined) {
   const details = document.getElementById('routeDetails');
   const detour = direct.distance !== null && combined.distance !== null ? combined.distance - direct.distance : null;
   const integratedDistance = legs.slice(1).reduce((total, leg) => total + (leg.distance || 0), 0);
-  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${stops[stops.length - 1].name}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card accent-card"><span class="metric-label">Quilômetros fora da rota</span><strong>${formatDistance(detour)}</strong><span class="metric-note">Acréscimo da combinação sobre a rota direta</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre A e B</span></article>`;
-  const rows = legs.map((leg) => `<tr><td><span class="route-role ${leg.fromRole}">${leg.fromRole === 'origin' ? 'F' : leg.fromRole === 'candidate' ? 'B' : 'A'}</span>${leg.from.name}</td><td><span class="route-role ${leg.toRole}">${leg.toRole === 'candidate' ? 'B' : 'A'}</span>${leg.to.name}</td><td>${formatDistance(leg.distance)}</td><td>${formatDuration(leg.duration)}</td><td class="detour-value">${leg.toRole === 'candidate' ? `Distância entre pontos: ${formatDistance(leg.distance)}` : 'Destino final em A'}</td></tr>`).join('');
+  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${escapeHtml(stops[stops.length - 1].name)}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card accent-card"><span class="metric-label">Quilômetros fora da rota</span><strong>${formatDistance(detour)}</strong><span class="metric-note">Acréscimo da combinação sobre a rota direta</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre A e B</span></article>`;
+  const rows = legs.map((leg) => `<tr><td><span class="route-role ${leg.fromRole}">${leg.fromRole === 'origin' ? 'F' : leg.fromRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.from.name)}</td><td><span class="route-role ${leg.toRole}">${leg.toRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.to.name)}</td><td>${formatDistance(leg.distance)}</td><td>${formatDuration(leg.duration)}</td><td class="detour-value">${leg.toRole === 'candidate' ? `Distância entre pontos: ${formatDistance(leg.distance)}` : 'Destino final em A'}</td></tr>`).join('');
   details.innerHTML = `<table><thead><tr><th>Origem</th><th>Destino</th><th>Distância entre pontos</th><th>Tempo de viagem</th><th>Observação</th></tr></thead><tbody>${rows}</tbody></table>`;
   document.getElementById('analysisStatus').textContent = `${stops.length - 1} trecho${stops.length === 2 ? '' : 's'} calculado${stops.length === 2 ? '' : 's'}`;
 }
@@ -436,7 +492,7 @@ document.getElementById('suggestionsList').addEventListener('click', (event) => 
 });
 
 function renderSelected() {
-  selectedList.innerHTML = selected.map((farm, index) => `<span class="selected-tag">${farm.name}<button type="button" data-index="${index}" aria-label="Remover ${farm.name}">×</button></span>`).join('');
+  selectedList.innerHTML = selected.map((farm, index) => `<span class="selected-tag">${escapeHtml(farm.name)}<button type="button" data-index="${index}" aria-label="Remover ${escapeHtml(farm.name)}">×</button></span>`).join('');
   candidateCount.textContent = `${selected.length} selecionado${selected.length === 1 ? '' : 's'}`;
   selectedList.querySelectorAll('button').forEach((button) => {
     button.addEventListener('click', () => { selected.splice(Number(button.dataset.index), 1); renderSelected(); renderMapSelection(); });
@@ -518,6 +574,7 @@ document.getElementById('clearRoute').addEventListener('click', () => {
 });
 
 document.getElementById('analyzeRoute').addEventListener('click', async () => {
+  if (routeAnalysisInProgress) return;
   document.querySelectorAll('.candidate-input').forEach((input) => addCandidateFromInput(input));
   const primaryFarm = findFarm(primaryInput.value);
   const button = document.getElementById('analyzeRoute');
@@ -531,29 +588,37 @@ document.getElementById('analyzeRoute').addEventListener('click', async () => {
     setTimeout(() => { button.innerHTML = '<span>✦</span> Analisar combinação'; }, 2200);
     return;
   }
+  routeAnalysisInProgress = true;
+  button.disabled = true;
   routeLayer.clearLayers();
   const selectedCandidates = selected.length > 0 ? selected : [];
   const primaryPath = [origin, primaryFarm.coords];
   const alternatePath = selectedCandidates.length > 0
     ? [origin, ...selectedCandidates.map((farm) => farm.coords), primaryFarm.coords]
     : null;
-  const directResult = await drawRoute(primaryPath, alternatePath ? 'route-primary' : 'route-combined');
-  const combinedResult = alternatePath ? await drawRoute(alternatePath, 'route-combined') : directResult;
-  const alternativeResult = await drawAlternativeRoute(alternatePath || primaryPath, 'route-alternative');
-  const stops = [{ name: 'Fábrica de ração', coords: origin, role: 'origin' }, ...selectedCandidates.map((farm) => ({ ...farm, role: 'candidate' })), { ...primaryFarm, role: 'primary' }];
-  const legs = [];
-  for (let index = 0; index < stops.length - 1; index += 1) {
-    const result = await drawRoute([stops[index].coords, stops[index + 1].coords], 'route-hidden');
-    result.layer.remove();
-    legs.push({ from: stops[index], to: stops[index + 1], fromRole: stops[index].role, toRole: stops[index + 1].role, distance: result.distance, duration: result.duration });
+  try {
+    const directResult = await drawRoute(primaryPath, alternatePath ? 'route-primary' : 'route-combined');
+    const combinedResult = alternatePath ? await drawRoute(alternatePath, 'route-combined') : directResult;
+    const alternativeResult = await drawAlternativeRoute(alternatePath || primaryPath, 'route-alternative');
+    const stops = [{ name: 'Fábrica de ração', coords: origin, role: 'origin' }, ...selectedCandidates.map((farm) => ({ ...farm, role: 'candidate' })), { ...primaryFarm, role: 'primary' }];
+    const legs = [];
+    for (let index = 0; index < stops.length - 1; index += 1) {
+      const result = await drawRoute([stops[index].coords, stops[index + 1].coords], 'route-hidden');
+      result.layer.remove();
+      legs.push({ from: stops[index], to: stops[index + 1], fromRole: stops[index].role, toRole: stops[index + 1].role, distance: result.distance, duration: result.duration, usedFallback: result.usedFallback });
+    }
+    renderRouteDetails(stops, legs, directResult, combinedResult);
+    if (directResult.usedFallback || combinedResult.usedFallback || legs.some((leg) => leg.usedFallback)) {
+      document.getElementById('analysisStatus').textContent = 'Rota aproximada: serviço indisponível';
+    }
+    renderSuggestions(stops);
+    if (alternativeResult) alternativeResult.layer.bringToFront();
+    const routePoints = alternatePath || primaryPath;
+    map.fitBounds(L.latLngBounds(routePoints), { padding: [55, 55] });
+    button.innerHTML = `<span>✓</span> ${alternatePath ? '2 rotas exibidas' : 'Rota exibida'}`;
+    setTimeout(() => { button.innerHTML = '<span>✦</span> Analisar combinação'; }, 2200);
+  } finally {
+    routeAnalysisInProgress = false;
+    button.disabled = false;
   }
-  renderRouteDetails(stops, legs, directResult, combinedResult);
-  renderSuggestions(stops);
-  if (alternativeResult) {
-    alternativeResult.layer.bringToFront();
-  }
-  const routePoints = alternatePath || primaryPath;
-  map.fitBounds(L.latLngBounds(routePoints), { padding: [55, 55] });
-  button.innerHTML = `<span>✓</span> ${alternatePath ? '2 rotas exibidas' : 'Rota exibida'}`;
-  setTimeout(() => { button.innerHTML = '<span>✦</span> Analisar combinação'; }, 2200);
 });
