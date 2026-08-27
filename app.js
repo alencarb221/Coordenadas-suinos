@@ -130,27 +130,15 @@ async function loadFarms() {
   if (!supabaseClient) throw new Error('Configuração do Supabase não carregada');
   const { data, error } = await supabaseClient.from('integrados').select('nome, cidade, latitude, longitude').order('nome');
   if (error) throw error;
-  if (data.length) {
-    farms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude] }));
-  } else if (Array.isArray(window.INTEGRATED_DATA)) {
-    farms = window.INTEGRATED_DATA;
-    const { error: seedError } = await supabaseClient.from('integrados').insert(farms.map((farm) => ({ nome: farm.name, cidade: farm.city, latitude: farm.coords[0], longitude: farm.coords[1] })));
+  const remoteFarms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude] }));
+  const localFarms = Array.isArray(window.INTEGRATED_DATA) ? window.INTEGRATED_DATA : [];
+  const remoteNames = new Set(remoteFarms.map((farm) => normalizeText(farm.name)));
+  const missingFarms = localFarms.filter((farm) => !remoteNames.has(normalizeText(farm.name)));
+  if (missingFarms.length) {
+    const { error: seedError } = await supabaseClient.from('integrados').insert(missingFarms.map((farm) => ({ nome: farm.name, cidade: farm.city, latitude: farm.coords[0], longitude: farm.coords[1] })));
     if (seedError) throw seedError;
-  } else {
-    const response = await fetch('Arquivos/PONTOS%20GPS%20SU%C3%8DNOS%20-%20GEOREFERENCIAMENTO.csv', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Não foi possível carregar a base de integrados');
-    const text = await response.text();
-    const lines = text.split(/\r?\n/).filter((line) => line.trim());
-    const rows = lines.slice(1).map(parseCsvLine);
-    const unique = new Map();
-    rows.forEach((row) => {
-      const name = integratedName(row[8]);
-      const coords = parseCoordinate(row[12]);
-      if (!name || !coords || unique.has(name.toLocaleLowerCase())) return;
-      unique.set(name.toLocaleLowerCase(), { name, city: row[10] || 'Município não informado', address: row[9] || '', coords });
-    });
-    farms = [...unique.values()];
   }
+  farms = [...remoteFarms, ...missingFarms];
   baseFarms = farms;
   refreshFarmSources();
   farmsLoaded = true;
@@ -264,7 +252,8 @@ function findFarm(value) {
 
 loadFarms().catch((error) => {
   document.querySelector('.draft-badge').textContent = 'Erro ao carregar pontos';
-  document.querySelector('.subtitle').textContent = 'Não foi possível carregar o CSV. Abra pelo servidor local em http://127.0.0.1:5500.';
+  const detail = error?.message ? ` Detalhes: ${error.message}` : '';
+  document.querySelector('.subtitle').textContent = `Não foi possível carregar os integrados do Supabase.${detail}`;
   console.error(error);
 });
 
