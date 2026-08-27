@@ -22,7 +22,7 @@ const candidateCount = document.querySelector('.candidate-count');
 const selected = [];
 let farmsLoaded = false;
 let routeAnalysisInProgress = false;
-const customFarmStorageKey = 'rota-suina-integrados-customizados';
+const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 let baseFarms = [];
 const farmMarkers = L.layerGroup().addTo(map);
 let farmRefreshQueued = false;
@@ -38,56 +38,6 @@ function escapeHtml(value) {
 
 function createFarmIcon(farm) {
   return L.divIcon({ className: 'farm-label', html: `<span class="farm-dot"></span><span class="farm-name">${escapeHtml(farm.name)}</span>`, iconSize: [150, 24], iconAnchor: [5, 12] });
-}
-
-function loadCustomFarms() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(customFarmStorageKey) || '{}');
-    if (Array.isArray(saved)) return { legacyFarms: saved, overrides: [], deleted: [] };
-    return {
-      legacyFarms: [],
-      overrides: Array.isArray(saved.overrides) ? saved.overrides : [],
-      deleted: Array.isArray(saved.deleted) ? saved.deleted : []
-    };
-  } catch (error) {
-    return { legacyFarms: [], overrides: [], deleted: [] };
-  }
-}
-
-function saveCustomFarms() {
-  const baseByName = new Map(baseFarms.map((farm) => [normalizeText(farm.name), farm]));
-  const currentNames = new Set(farms.map((farm) => normalizeText(farm.name)));
-  const overrides = farms.filter((farm) => {
-    const original = baseByName.get(normalizeText(farm.name));
-    return !original || JSON.stringify(original) !== JSON.stringify(farm);
-  });
-  const deleted = baseFarms
-    .filter((farm) => !currentNames.has(normalizeText(farm.name)))
-    .map((farm) => farm.name);
-  localStorage.setItem(customFarmStorageKey, JSON.stringify({ overrides, deleted }));
-}
-
-function applySavedFarms(saved) {
-  const farmsByName = new Map(baseFarms.map((farm) => [normalizeText(farm.name), farm]));
-  if (saved.legacyFarms.length) {
-    const legacyByName = new Map(saved.legacyFarms.map((farm) => {
-      const normalizedFarm = { ...farm, name: integratedName(farm.name) };
-      return [normalizeText(normalizedFarm.name), normalizedFarm];
-    }));
-    legacyByName.forEach((farm, name) => {
-      const original = farmsByName.get(name);
-      if (!original || JSON.stringify(original) !== JSON.stringify(farm)) farmsByName.set(name, farm);
-    });
-    baseFarms.forEach((farm) => {
-      if (!legacyByName.has(normalizeText(farm.name))) farmsByName.delete(normalizeText(farm.name));
-    });
-  }
-  saved.overrides.forEach((farm) => {
-    const normalizedFarm = { ...farm, name: integratedName(farm.name) };
-    farmsByName.set(normalizeText(normalizedFarm.name), normalizedFarm);
-  });
-  saved.deleted.forEach((name) => farmsByName.delete(normalizeText(integratedName(name))));
-  return [...farmsByName.values()];
 }
 
 function refreshFarmSources() {
@@ -177,9 +127,15 @@ function googleMapsDirectionsUrl(points) {
 }
 
 async function loadFarms() {
-  const savedFarms = loadCustomFarms();
-  if (window.location.protocol === 'file:' && Array.isArray(window.INTEGRATED_DATA)) {
+  if (!supabaseClient) throw new Error('Configuração do Supabase não carregada');
+  const { data, error } = await supabaseClient.from('integrados').select('nome, cidade, latitude, longitude').order('nome');
+  if (error) throw error;
+  if (data.length) {
+    farms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude] }));
+  } else if (Array.isArray(window.INTEGRATED_DATA)) {
     farms = window.INTEGRATED_DATA;
+    const { error: seedError } = await supabaseClient.from('integrados').insert(farms.map((farm) => ({ nome: farm.name, cidade: farm.city, latitude: farm.coords[0], longitude: farm.coords[1] })));
+    if (seedError) throw seedError;
   } else {
     const response = await fetch('Arquivos/PONTOS%20GPS%20SU%C3%8DNOS%20-%20GEOREFERENCIAMENTO.csv', { cache: 'no-store' });
     if (!response.ok) throw new Error('Não foi possível carregar a base de integrados');
@@ -196,7 +152,6 @@ async function loadFarms() {
     farms = [...unique.values()];
   }
   baseFarms = farms;
-  farms = applySavedFarms(savedFarms);
   refreshFarmSources();
   farmsLoaded = true;
   primaryInput.placeholder = 'Digite o nome do integrado';
@@ -251,7 +206,7 @@ document.getElementById('closeModal').addEventListener('click', closeIntegratedM
 document.getElementById('cancelModal').addEventListener('click', closeIntegratedModal);
 document.getElementById('integratedModal').addEventListener('click', (event) => { if (event.target.id === 'integratedModal') closeIntegratedModal(); });
 
-document.getElementById('integratedForm').addEventListener('submit', (event) => {
+document.getElementById('integratedForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const originalName = document.getElementById('integratedId').value;
   const name = document.getElementById('integratedName').value.trim();
@@ -268,8 +223,13 @@ document.getElementById('integratedForm').addEventListener('submit', (event) => 
   if (originalName) {
     const index = farms.findIndex((farm) => farm.name === originalName);
     if (index >= 0) farms[index] = updatedFarm;
-  } else farms.push(updatedFarm);
-  saveCustomFarms();
+    const { error: updateError } = await supabaseClient.from('integrados').update({ nome: name, cidade: city, latitude: coords[0], longitude: coords[1] }).eq('nome', originalName);
+    if (updateError) { error.textContent = 'Não foi possível atualizar o integrado.'; return; }
+  } else {
+    const { error: insertError } = await supabaseClient.from('integrados').insert({ nome: name, cidade: city, latitude: coords[0], longitude: coords[1] });
+    if (insertError) { error.textContent = 'Não foi possível salvar o integrado.'; return; }
+    farms.push(updatedFarm);
+  }
   scheduleFarmRefresh();
   renderMapSelection();
   closeIntegratedModal();
@@ -282,12 +242,14 @@ document.getElementById('integratedTableBody').addEventListener('click', (event)
   if (!farm) return;
   if (button.classList.contains('edit-integrated')) openIntegratedModal(farm);
   if (button.classList.contains('delete-integrated') && window.confirm(`Excluir o integrado ${farm.name}?`)) {
+    supabaseClient.from('integrados').delete().eq('nome', farm.name).then(({ error }) => {
+      if (error) { window.alert('Não foi possível excluir o integrado.'); return; }
     farms = farms.filter((item) => item.name !== farm.name);
     selected.splice(0, selected.length, ...selected.filter((item) => item.name !== farm.name));
-    saveCustomFarms();
     scheduleFarmRefresh();
     renderSelected();
     renderMapSelection();
+    });
   }
 });
 
