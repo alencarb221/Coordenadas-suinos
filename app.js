@@ -262,7 +262,7 @@ function routeCoordinates(points) {
 }
 
 async function fetchRouteData(points, includeAlternatives = false) {
-  const url = `https://router.project-osrm.org/route/v1/driving/${routeCoordinates(points)}?overview=full&geometries=geojson&alternatives=${includeAlternatives}`;
+  const url = `/api/route?coordinates=${encodeURIComponent(routeCoordinates(points))}&alternatives=${includeAlternatives}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
