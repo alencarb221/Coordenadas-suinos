@@ -5,15 +5,18 @@ const map = L.map('map', { zoomControl: false }).setView(origin, 9);
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri' });
+const satelliteRoadLayer = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { attribution: 'Road data &copy; Esri' });
 let satelliteActive = false;
 
 const originIcon = L.divIcon({ className: 'custom-pin origin-pin', html: '<span>F</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 const primaryIcon = L.divIcon({ className: 'custom-pin primary-pin', html: '<span>A</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 const candidateIcon = L.divIcon({ className: 'custom-pin candidate-pin', html: '<span>B</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
-L.marker(origin, { icon: originIcon }).addTo(map).bindTooltip('Fábrica de ração · São Miguel do Oeste');
+const possibilityIcon = L.divIcon({ className: 'custom-pin possibility-pin', html: '<span>+</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
+L.marker(origin, { icon: originIcon, zIndexOffset: 1000 }).addTo(map).bindTooltip('Fábrica de ração · São Miguel do Oeste', { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
 
 const routeLayer = L.layerGroup().addTo(map);
 const selectionLayer = L.layerGroup().addTo(map);
+const possibilityLayer = L.layerGroup().addTo(map);
 const manualPointLayer = L.layerGroup().addTo(map);
 const farmOptions = document.getElementById('farmOptions');
 const primaryInput = document.getElementById('primary');
@@ -24,7 +27,6 @@ let farmsLoaded = false;
 let routeAnalysisInProgress = false;
 const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 let baseFarms = [];
-const farmMarkers = L.layerGroup().addTo(map);
 let farmRefreshQueued = false;
 let manualPointSelection = null;
 const manualPointColors = {
@@ -36,19 +38,13 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 }
 
-function createFarmIcon(farm) {
-  return L.divIcon({ className: 'farm-label', html: `<span class="farm-dot"></span><span class="farm-name">${escapeHtml(farm.name)}</span>`, iconSize: [150, 24], iconAnchor: [5, 12] });
-}
-
 function refreshFarmSources() {
   farmOptions.innerHTML = '';
-  farmMarkers.clearLayers();
   farms.sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
   farms.forEach((farm) => {
     const option = document.createElement('option');
     option.value = `${farm.name} · ${farm.city}`;
     farmOptions.appendChild(option);
-    L.marker(farm.coords, { icon: createFarmIcon(farm) }).addTo(farmMarkers).bindTooltip(`${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`);
   });
   document.querySelector('.nav-count').textContent = farms.length;
   document.querySelector('.draft-badge').textContent = `${farms.length} pontos carregados`;
@@ -66,14 +62,16 @@ function scheduleFarmRefresh() {
 
 function renderMapSelection() {
   selectionLayer.clearLayers();
-  const primaryFarm = findFarm(primaryInput.value);
-  if (primaryFarm) {
-    L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
-  }
-  selected.forEach((farm) => {
+  possibilityLayer.clearLayers();
+  routeLayer.clearLayers();
+}
+
+function renderRoutePoints(primaryFarm, selectedCandidates) {
+  selectionLayer.clearLayers();
+  L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+  selectedCandidates.forEach((farm) => {
     L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
   });
-  renderManualDistance();
 }
 
 function normalizeText(value) {
@@ -262,14 +260,26 @@ function routeCoordinates(points) {
 }
 
 async function fetchRouteData(points, includeAlternatives = false) {
-  const url = `/api/route?coordinates=${encodeURIComponent(routeCoordinates(points))}&alternatives=${includeAlternatives}`;
+  const coordinates = routeCoordinates(points);
+  const urls = [
+    `/api/route?coordinates=${encodeURIComponent(coordinates)}&alternatives=${includeAlternatives}`,
+    `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&alternatives=${includeAlternatives}`
+  ];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error('Falha no roteador');
-    const data = await response.json();
-    return data.routes || [];
+    let lastError;
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`Falha no roteador: ${response.status}`);
+        const data = await response.json();
+        return data.routes || [];
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
   } finally {
     clearTimeout(timeout);
   }
@@ -287,6 +297,7 @@ async function drawRoute(points, className) {
     const geometry = route.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]);
     return {
       layer: createRoutePolyline(geometry, className, '#2475b9', className === 'route-combined' ? 5 : 3, className === 'route-combined' ? .95 : .58, className === 'route-combined' ? null : '8 8'),
+      geometry,
       distance: route.distance,
       duration: route.duration,
       usedFallback: false
@@ -295,6 +306,7 @@ async function drawRoute(points, className) {
     console.error('Erro ao consultar o roteador OSRM, exibindo linha reta como aproximação:', error);
     return {
       layer: createRoutePolyline(points, className, '#2475b9', className === 'route-combined' ? 5 : 3, className === 'route-combined' ? .95 : .58, className === 'route-combined' ? null : '8 8'),
+      geometry: points,
       distance: null,
       duration: null,
       usedFallback: true
@@ -309,7 +321,7 @@ async function drawAlternativeRoute(points, className = 'route-alternative') {
     const alternative = routes[1];
     const geometry = alternative.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]);
     return {
-      layer: createRoutePolyline(geometry, className, '#2fbf71', 3, 0.85, '8 8'),
+      layer: createRoutePolyline(geometry, className, '#d64545', 4, 0.9, '8 8'),
       distance: alternative.distance,
       duration: alternative.duration
     };
@@ -329,21 +341,6 @@ function formatDuration(seconds) {
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes} min`;
 }
 
-function distanceToSegment(point, start, end) {
-  const latitudeScale = 111320;
-  const longitudeScale = 111320 * Math.cos(point[0] * Math.PI / 180);
-  const pointX = point[1] * longitudeScale;
-  const pointY = point[0] * latitudeScale;
-  const startX = start[1] * longitudeScale;
-  const startY = start[0] * latitudeScale;
-  const endX = end[1] * longitudeScale;
-  const endY = end[0] * latitudeScale;
-  const deltaX = endX - startX;
-  const deltaY = endY - startY;
-  const ratio = deltaX ** 2 + deltaY ** 2 === 0 ? 0 : Math.max(0, Math.min(1, ((pointX - startX) * deltaX + (pointY - startY) * deltaY) / (deltaX ** 2 + deltaY ** 2)));
-  return Math.hypot(pointX - (startX + ratio * deltaX), pointY - (startY + ratio * deltaY));
-}
-
 function haversineDistanceKm(firstPoint, secondPoint) {
   const [lat1, lon1] = firstPoint;
   const [lat2, lon2] = secondPoint;
@@ -356,6 +353,46 @@ function haversineDistanceKm(firstPoint, secondPoint) {
   const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
     + Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2) * Math.cos(latitude1) * Math.cos(latitude2);
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function bearingBetween(start, end) {
+  const [startLat, startLng] = start.map((coordinate) => coordinate * Math.PI / 180);
+  const [endLat, endLng] = end.map((coordinate) => coordinate * Math.PI / 180);
+  const deltaLng = endLng - startLng;
+  const y = Math.sin(deltaLng) * Math.cos(endLat);
+  const x = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(deltaLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function isInRouteDirection(point, start, end) {
+  const routeDistance = haversineDistanceKm(start, end);
+  const pointDistance = haversineDistanceKm(start, point);
+  const directionDifference = Math.abs(((bearingBetween(start, point) - bearingBetween(start, end) + 540) % 360) - 180);
+  return pointDistance <= routeDistance && directionDifference <= 30;
+}
+
+function distanceToSegmentMeters(point, start, end) {
+  const latitudeScale = 111320;
+  const longitudeScale = latitudeScale * Math.cos(point[0] * Math.PI / 180);
+  const pointX = point[1] * longitudeScale;
+  const pointY = point[0] * latitudeScale;
+  const startX = start[1] * longitudeScale;
+  const startY = start[0] * latitudeScale;
+  const endX = end[1] * longitudeScale;
+  const endY = end[0] * latitudeScale;
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  const lengthSquared = deltaX ** 2 + deltaY ** 2;
+  const ratio = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((pointX - startX) * deltaX + (pointY - startY) * deltaY) / lengthSquared));
+  return Math.hypot(pointX - (startX + ratio * deltaX), pointY - (startY + ratio * deltaY));
+}
+
+function distanceToRouteMeters(point, geometry) {
+  let shortestDistance = Infinity;
+  for (let index = 0; index < geometry.length - 1; index += 1) {
+    shortestDistance = Math.min(shortestDistance, distanceToSegmentMeters(point, geometry[index], geometry[index + 1]));
+  }
+  return shortestDistance;
 }
 
 function getManualPointValue(pointKey) {
@@ -417,23 +454,26 @@ function setManualPointFromMap(pointKey, latlng) {
   renderManualDistance();
 }
 
-function renderSuggestions(stops) {
+function renderSuggestions(stops, routeGeometry) {
   const selectedNames = new Set(stops.slice(1).map((stop) => normalizeText(stop.name)));
   const segments = stops.slice(0, -1).map((stop, index) => [stop.coords, stops[index + 1].coords]);
-  const suggestions = farms.filter((farm) => !selectedNames.has(normalizeText(farm.name))).map((farm) => ({ farm, distance: Math.min(...segments.map(([start, end]) => distanceToSegment(farm.coords, start, end))) })).filter((item) => item.distance <= 10000).sort((first, second) => first.distance - second.distance).slice(0, 8);
+  const suggestions = farms.filter((farm) => !selectedNames.has(normalizeText(farm.name)) && segments.some(([start, end]) => isInRouteDirection(farm.coords, start, end))).map((farm) => ({ farm, distance: distanceToRouteMeters(farm.coords, routeGeometry) })).filter(({ distance }) => distance <= 5000).sort((first, second) => first.distance - second.distance).slice(0, 8);
   const card = document.getElementById('suggestionsCard');
   const list = document.getElementById('suggestionsList');
+  possibilityLayer.clearLayers();
+  suggestions.forEach(({ farm }) => {
+    L.marker(farm.coords, { icon: possibilityIcon, zIndexOffset: 900 }).addTo(possibilityLayer).bindTooltip(`Possibilidade · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+  });
   card.hidden = false;
   document.getElementById('suggestionsCount').textContent = `${suggestions.length} opção${suggestions.length === 1 ? '' : 'ões'}`;
-  list.innerHTML = suggestions.length ? suggestions.map(({ farm, distance }) => `<div class="suggestion-item"><div class="suggestion-info"><strong>${escapeHtml(farm.name)}</strong><span>${escapeHtml(farm.city)} · ${formatDistance(distance)} do trajeto</span></div><button class="suggestion-add" type="button" data-farm-name="${escapeHtml(farm.name)}">Adicionar B</button></div>`).join('') : '<div class="empty-results">Nenhum integrado próximo ao corredor desta rota.</div>';
+  list.innerHTML = suggestions.length ? suggestions.map(({ farm, distance }) => `<div class="suggestion-item"><div class="suggestion-info"><strong>${escapeHtml(farm.name)}</strong><span>${escapeHtml(farm.city)} · ${formatDistance(distance)} da rota</span></div><button class="suggestion-add" type="button" data-farm-name="${escapeHtml(farm.name)}">Adicionar B</button></div>`).join('') : '<div class="empty-results">Nenhum integrado encontrado em até 5 km da rota.</div>';
 }
 
 function renderRouteDetails(stops, legs, direct, combined) {
   const metricGrid = document.getElementById('metricGrid');
   const details = document.getElementById('routeDetails');
-  const detour = direct.distance !== null && combined.distance !== null ? combined.distance - direct.distance : null;
   const integratedDistance = legs.slice(1).reduce((total, leg) => total + (leg.distance || 0), 0);
-  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${escapeHtml(stops[stops.length - 1].name)}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card accent-card"><span class="metric-label">Quilômetros fora da rota</span><strong>${formatDistance(detour)}</strong><span class="metric-note">Acréscimo da combinação sobre a rota direta</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre A e B</span></article>`;
+  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${escapeHtml(stops[stops.length - 1].name)}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre A e B</span></article>`;
   const rows = legs.map((leg) => `<tr><td><span class="route-role ${leg.fromRole}">${leg.fromRole === 'origin' ? 'F' : leg.fromRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.from.name)}</td><td><span class="route-role ${leg.toRole}">${leg.toRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.to.name)}</td><td>${formatDistance(leg.distance)}</td><td>${formatDuration(leg.duration)}</td><td class="detour-value">${leg.toRole === 'candidate' ? `Distância entre pontos: ${formatDistance(leg.distance)}` : 'Destino final em A'}</td></tr>`).join('');
   details.innerHTML = `<table><thead><tr><th>Origem</th><th>Destino</th><th>Distância entre pontos</th><th>Tempo de viagem</th><th>Observação</th></tr></thead><tbody>${rows}</tbody></table>`;
   document.getElementById('analysisStatus').textContent = `${stops.length - 1} trecho${stops.length === 2 ? '' : 's'} calculado${stops.length === 2 ? '' : 's'}`;
@@ -450,8 +490,15 @@ document.getElementById('openInGoogleMaps').addEventListener('click', () => {
 
 document.getElementById('satelliteToggle').addEventListener('click', (event) => {
   satelliteActive = !satelliteActive;
-  if (satelliteActive) { map.removeLayer(streetLayer); map.addLayer(satelliteLayer); }
-  else { map.removeLayer(satelliteLayer); map.addLayer(streetLayer); }
+  if (satelliteActive) {
+    map.removeLayer(streetLayer);
+    map.addLayer(satelliteLayer);
+    map.addLayer(satelliteRoadLayer);
+  } else {
+    map.removeLayer(satelliteLayer);
+    map.removeLayer(satelliteRoadLayer);
+    map.addLayer(streetLayer);
+  }
   event.currentTarget.classList.toggle('is-active', satelliteActive);
   event.currentTarget.textContent = satelliteActive ? 'Mapa padrão' : 'Satélite';
 });
@@ -545,6 +592,7 @@ document.getElementById('clearRoute').addEventListener('click', () => {
   document.querySelectorAll('#candidateFields .candidate-entry:not(:first-child)').forEach((field) => field.remove());
   routeLayer.clearLayers();
   selectionLayer.clearLayers();
+  possibilityLayer.clearLayers();
   document.getElementById('suggestionsCard').hidden = true;
   document.getElementById('suggestionsList').innerHTML = '';
   renderSelected();
@@ -578,6 +626,7 @@ document.getElementById('analyzeRoute').addEventListener('click', async () => {
     const combinedResult = alternatePath ? await drawRoute(alternatePath, 'route-combined') : directResult;
     const alternativeResult = await drawAlternativeRoute(alternatePath || primaryPath, 'route-alternative');
     const stops = [{ name: 'Fábrica de ração', coords: origin, role: 'origin' }, ...selectedCandidates.map((farm) => ({ ...farm, role: 'candidate' })), { ...primaryFarm, role: 'primary' }];
+    renderRoutePoints(primaryFarm, selectedCandidates);
     const legs = [];
     for (let index = 0; index < stops.length - 1; index += 1) {
       const result = await drawRoute([stops[index].coords, stops[index + 1].coords], 'route-hidden');
@@ -591,7 +640,7 @@ document.getElementById('analyzeRoute').addEventListener('click', async () => {
     if (hadFallback) {
       analysisStatus.textContent = 'Serviço de rotas indisponível: exibindo linha reta e sem km/tempo';
     }
-    renderSuggestions(stops);
+    renderSuggestions(stops, combinedResult.geometry);
     if (alternativeResult) alternativeResult.layer.bringToFront();
     const routePoints = alternatePath || primaryPath;
     map.fitBounds(L.latLngBounds(routePoints), { padding: [55, 55] });

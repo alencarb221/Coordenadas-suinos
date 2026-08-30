@@ -29,10 +29,10 @@ Funcionalidades
 * Visualização dos pontos no mapa.
 * Visualização da rota no Google Maps.
 * Análise da distância da rota direta e da rota combinada.
-* Identificação de integrados localizados próximos ao trajeto planejado.
+* Identificação de integrados localizados na mesma direção do trajeto planejado.
 * Interface voltada para planejamento e análise logística.
 
-A aplicação considera como oportunidade no trajeto os integrados localizados a até **10 km do caminho analisado**.
+A aplicação considera como oportunidade no trajeto os integrados posicionados na mesma direção dos trechos analisados.
 
 Conceitos utilizados
 

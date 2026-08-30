@@ -213,13 +213,15 @@ button {
 }
 .primary-pin,
 .candidate-pin,
-.origin-pin {
+.origin-pin,
+.possibility-pin {
   border: 0;
   background: transparent;
 }
 .primary-pin span,
 .candidate-pin span,
-.origin-pin span {
+.origin-pin span,
+.possibility-pin span {
   width: 30px;
   height: 30px;
   display: grid;
@@ -241,6 +243,9 @@ button {
 }
 .origin-pin span {
   background: var(--coral);
+}
+.possibility-pin span {
+  background: #2475b9;
 }
 .selection-label {
   border: 0;
@@ -678,6 +683,7 @@ h2 {
   right: 17px;
   bottom: 17px;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 9px 11px;
   border-radius: 6px;
@@ -702,12 +708,18 @@ h2 {
 .legend-candidate {
   background: var(--yellow);
 }
+.legend-possibility {
+  background: #2475b9;
+}
 .legend-route {
   width: 13px !important;
   height: 2px !important;
   border-radius: 0 !important;
   background: #2475b9;
   vertical-align: middle;
+}
+.legend-alternative {
+  background: #d64545;
 }
 .insight-section,
 .recent-section {
@@ -723,7 +735,7 @@ h2 {
 }
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 18px;
 }

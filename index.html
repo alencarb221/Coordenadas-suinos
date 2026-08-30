@@ -135,7 +135,9 @@
             <span><i class="legend-origin"></i> Fábrica</span>
             <span><i class="legend-primary"></i> A · Principal</span>
             <span><i class="legend-candidate"></i> B · Combinação</span>
-            <span><i class="legend-route"></i> Rota até A</span>
+            <span><i class="legend-possibility"></i> Possibilidade</span>
+            <span><i class="legend-route"></i> Rota</span>
+            <span><i class="legend-route legend-alternative"></i> Alternativa</span>
           </div>
         </div>
       </section>
@@ -145,7 +147,6 @@
         <div class="metric-grid" id="metricGrid">
           <article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>— <small>km</small></strong><span class="metric-note">Selecione o integrado principal</span></article>
           <article class="metric-card"><span class="metric-label">Tempo até A</span><strong>—</strong><span class="metric-note">Calculado pela estrada</span></article>
-          <article class="metric-card accent-card"><span class="metric-label">Rota combinada</span><strong>— <small>km</small></strong><span class="metric-note">Inclui os pontos B</span></article>
           <article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>— <small>km</small></strong><span class="metric-note">Soma dos trechos entre A e B</span></article>
         </div>
         <div class="route-details" id="routeDetails">
@@ -153,7 +154,7 @@
         </div>
         <div class="suggestions-card" id="suggestionsCard" hidden>
           <div class="suggestions-heading"><div><span class="section-kicker">Oportunidades no trajeto</span><h3>Novas possibilidades para esta rota</h3></div><span class="suggestions-count" id="suggestionsCount"></span></div>
-          <p class="suggestions-intro">Integrados localizados a no máximo 10 km do caminho entre a fábrica, os pontos B e o ponto A.</p>
+          <p class="suggestions-intro">Integrados na mesma direção dos trechos e localizados a até 5 km da rota.</p>
           <div class="suggestions-list" id="suggestionsList"></div>
         </div>
       </section>
@@ -198,6 +199,6 @@
   <script src="dados-integrados.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js"></script>
-  <script src="app.js?v=20260828-15"></script>
+  <script src="app.js?v=20260830-18"></script>
 </body>
 </html>
