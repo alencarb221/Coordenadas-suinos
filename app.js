@@ -26,8 +26,20 @@ const selected = [];
 let farmsLoaded = false;
 let routeAnalysisInProgress = false;
 const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+// kg por animal em cada fase, conforme planilha "Phase feeding-Suinos"
+const FEED_PHASES = [
+  { label: 'RS Alojamento', sigla: 'RSCA', kgPorAnimal: 15 },
+  { label: 'RS Crescimento 1', sigla: 'RSC-1', kgPorAnimal: 45 },
+  { label: 'RS Crescimento 2', sigla: 'RSC-2', kgPorAnimal: 27 },
+  { label: 'RS Crescimento 3', sigla: 'RSC-3', kgPorAnimal: 49 },
+  { label: 'RS Terminação 2', sigla: 'RST-2', kgPorAnimal: 35 },
+  { label: 'RS Terminação 3', sigla: 'RST-3', kgPorAnimal: 65 },
+];
+const FEED_CYCLE_KG_POR_ANIMAL = FEED_PHASES.reduce((total, phase) => total + phase.kgPorAnimal, 0);
 let baseFarms = [];
 let farmRefreshQueued = false;
+let pedidos = [];
+let galpoes = [];
 let manualPointSelection = null;
 const manualPointColors = {
   1: '#2475b9',
@@ -49,6 +61,8 @@ function refreshFarmSources() {
   document.querySelector('.nav-count').textContent = farms.length;
   document.querySelector('.draft-badge').textContent = `${farms.length} pontos carregados`;
   renderIntegratedTable();
+  renderRacaoTable();
+  renderProjecaoOptions();
 }
 
 function scheduleFarmRefresh() {
@@ -76,6 +90,11 @@ function renderRoutePoints(primaryFarm, selectedCandidates) {
 
 function normalizeText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+function formatDateBr(isoDate) {
+  const [year, month, day] = String(isoDate || '').split('-');
+  return year && month && day ? `${day}/${month}/${year}` : '—';
 }
 
 function parseCsvLine(line) {
@@ -126,12 +145,12 @@ function googleMapsDirectionsUrl(points) {
 
 async function loadFarms() {
   if (!supabaseClient) throw new Error('Configuração do Supabase não carregada');
-  const { data, error } = await supabaseClient.from('integrados').select('nome, cidade, latitude, longitude').order('nome');
+  const { data, error } = await supabaseClient.from('integrados').select('nome, cidade, latitude, longitude, animais_alojados, fase_racao').order('nome');
   if (error) throw error;
-  const remoteFarms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude] }));
+  const remoteFarms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude], animals: row.animais_alojados || 0, phase: row.fase_racao || '' }));
   const localFarms = Array.isArray(window.INTEGRATED_DATA) ? window.INTEGRATED_DATA : [];
   const remoteNames = new Set(remoteFarms.map((farm) => normalizeText(farm.name)));
-  const missingFarms = localFarms.filter((farm) => !remoteNames.has(normalizeText(farm.name)));
+  const missingFarms = localFarms.filter((farm) => !remoteNames.has(normalizeText(farm.name))).map((farm) => ({ ...farm, animals: 0, phase: '' }));
   if (missingFarms.length) {
     const { error: seedError } = await supabaseClient.from('integrados').insert(missingFarms.map((farm) => ({ nome: farm.name, cidade: farm.city, latitude: farm.coords[0], longitude: farm.coords[1] })));
     if (seedError) throw seedError;
@@ -153,6 +172,159 @@ function renderIntegratedTable() {
   body.innerHTML = visibleFarms.map((farm) => `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.coords[0].toFixed(6)}</td><td>${farm.coords[1].toFixed(6)}</td><td><a class="table-action" href="${googleMapsPointUrl(farm.coords)}" target="_blank" rel="noopener">Google Maps</a></td><td class="table-actions"><button class="table-action edit-integrated" type="button" data-name="${escapeHtml(farm.name)}">Editar</button><button class="table-action delete-integrated" type="button" data-name="${escapeHtml(farm.name)}">Excluir</button></td></tr>`).join('');
 }
 
+function renderRacaoTable() {
+  const body = document.getElementById('racaoTableBody');
+  if (!body) return;
+  const query = normalizeText(document.getElementById('racaoSearch')?.value);
+  const visibleFarms = farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
+  document.getElementById('racaoTotal').textContent = `${visibleFarms.length} de ${farms.length} integrados`;
+  body.innerHTML = visibleFarms.map((farm) => {
+    const totalCiclo = (farm.animals || 0) * FEED_CYCLE_KG_POR_ANIMAL;
+    return `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.animals || 0}</td><td>${totalCiclo ? `${totalCiclo.toLocaleString('pt-BR')} kg` : '—'}</td><td class="table-actions"><button class="table-action edit-racao" type="button" data-name="${escapeHtml(farm.name)}">Editar</button></td></tr>`;
+  }).join('');
+}
+
+function renderFeedProjection(animals) {
+  const body = document.getElementById('cadastroProjecaoBody');
+  body.innerHTML = FEED_PHASES.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${phase.kgPorAnimal}</td><td>${(animals * phase.kgPorAnimal).toLocaleString('pt-BR')} kg</td></tr>`).join('');
+  document.getElementById('cadastroTotalCiclo').innerHTML = `${(animals * FEED_CYCLE_KG_POR_ANIMAL).toLocaleString('pt-BR')} <small>kg</small>`;
+}
+
+function loadFarmIntoCadastro(farm) {
+  document.getElementById('cadastroIntegrado').value = farm.name;
+  const farmGalpoes = getGalpoesByFarm(farm.name);
+  const list = document.getElementById('cadastroGalpoesList');
+  list.innerHTML = '';
+  if (farmGalpoes.length) farmGalpoes.forEach((galpao) => addGalpaoRow(galpao.nome_galpao, galpao.animais_alojados));
+  else addGalpaoRow('', 0);
+  updateCadastroGalpoesTotal();
+}
+
+function getGalpoesByFarm(name) {
+  return galpoes.filter((galpao) => galpao.integrado_nome === name);
+}
+
+async function loadGalpoes() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient.from('galpoes_racao').select('id, integrado_nome, nome_galpao, animais_alojados').order('nome_galpao');
+  if (error) { console.error('Erro ao carregar galpões:', error); return; }
+  galpoes = data || [];
+}
+
+function addGalpaoRow(nome = '', animais = '') {
+  const list = document.getElementById('cadastroGalpoesList');
+  const row = document.createElement('div');
+  row.className = 'galpao-row';
+  row.innerHTML = `<input type="text" class="galpao-nome" placeholder="Nome do galpão" value="${escapeHtml(nome)}"><input type="number" class="galpao-animais" min="0" step="1" placeholder="Animais" value="${animais}"><button type="button" class="remove-galpao" aria-label="Remover galpão">×</button>`;
+  row.querySelector('.remove-galpao').addEventListener('click', () => { row.remove(); updateCadastroGalpoesTotal(); });
+  row.querySelector('.galpao-animais').addEventListener('input', updateCadastroGalpoesTotal);
+  list.appendChild(row);
+}
+
+function updateCadastroGalpoesTotal() {
+  const total = Array.from(document.querySelectorAll('#cadastroGalpoesList .galpao-animais')).reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+  document.getElementById('cadastroGalpoesTotal').textContent = `Total: ${total.toLocaleString('pt-BR')} animais`;
+  return total;
+}
+
+function renderProjecaoOptions() {
+  const select = document.getElementById('projecaoSelect');
+  if (!select) return;
+  const previousValue = select.value;
+  const cadastrados = farms.filter((farm) => (farm.animals || 0) > 0).sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
+  select.innerHTML = '<option value="">Selecione um integrado</option>' + cadastrados.map((farm) => `<option value="${escapeHtml(farm.name)}">${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}</option>`).join('');
+  if (cadastrados.some((farm) => farm.name === previousValue)) select.value = previousValue;
+}
+
+function renderProjecaoGalpaoOptions() {
+  const select = document.getElementById('projecaoGalpaoSelect');
+  const farmName = document.getElementById('projecaoSelect').value;
+  const farmGalpoes = getGalpoesByFarm(farmName);
+  select.innerHTML = '<option value="">Todos os galpões (total)</option>' + farmGalpoes.map((galpao) => `<option value="${escapeHtml(galpao.nome_galpao)}">${escapeHtml(galpao.nome_galpao)}</option>`).join('');
+}
+
+function renderProjecao() {
+  const chart = document.getElementById('projecaoChart');
+  const empty = document.getElementById('projecaoEmpty');
+  const rscaInfo = document.getElementById('projecaoRscaInfo');
+  if (!chart || !empty) return;
+  const name = document.getElementById('projecaoSelect').value;
+  const galpaoFiltro = document.getElementById('projecaoGalpaoSelect').value;
+  const farm = farms.find((item) => item.name === name);
+  if (!farm) {
+    chart.innerHTML = '';
+    rscaInfo.textContent = '';
+    empty.hidden = false;
+    document.getElementById('projecaoTotalCiclo').innerHTML = '— <small>kg</small>';
+    document.getElementById('projecaoProgramada').innerHTML = '— <small>kg</small>';
+    document.getElementById('projecaoRestante').innerHTML = '— <small>kg</small>';
+    return;
+  }
+  empty.hidden = true;
+  const animals = galpaoFiltro
+    ? (getGalpoesByFarm(farm.name).find((galpao) => galpao.nome_galpao === galpaoFiltro)?.animais_alojados || 0)
+    : (farm.animals || 0);
+  const farmPedidos = pedidos.filter((pedido) => pedido.integrado_nome === farm.name && (!galpaoFiltro || pedido.galpao === galpaoFiltro));
+  const [rscaPhase, ...chartPhases] = FEED_PHASES;
+  rscaInfo.textContent = `${rscaPhase.sigla} (${rscaPhase.label}): ${(animals * rscaPhase.kgPorAnimal).toLocaleString('pt-BR')} kg — apenas informativo, o alojamento é controlado por outro sistema.`;
+  const phaseData = chartPhases.map((phase) => {
+    const total = animals * phase.kgPorAnimal;
+    const programado = farmPedidos.filter((pedido) => pedido.fase === phase.sigla).reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
+    const falta = Math.max(0, total - programado);
+    return { ...phase, total, programado, falta };
+  });
+  const maxValue = Math.max(...phaseData.flatMap((phase) => [phase.total, phase.programado, phase.falta]), 1);
+  const legend = '<div class="chart-legend"><span><i class="legend-total"></i>Total da fase</span><span><i class="legend-programado"></i>Programado</span><span><i class="legend-falta"></i>Falta enviar</span></div>';
+  chart.innerHTML = legend + phaseData.map((phase) => `<div class="chart-group"><div class="chart-group-label">${escapeHtml(phase.sigla)} · ${escapeHtml(phase.label)}</div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-total" style="width:${Math.round((phase.total / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.total.toLocaleString('pt-BR')} kg</span></div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-programado" style="width:${Math.round((phase.programado / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.programado.toLocaleString('pt-BR')} kg</span></div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-falta" style="width:${Math.round((phase.falta / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.falta.toLocaleString('pt-BR')} kg</span></div></div>`).join('');
+  const totalCiclo = animals * FEED_CYCLE_KG_POR_ANIMAL;
+  const programada = farmPedidos.reduce((total, pedido) => total + Number(pedido.quantidade_kg), 0);
+  const restante = Math.max(0, totalCiclo - programada);
+  document.getElementById('projecaoTotalCiclo').innerHTML = `${totalCiclo.toLocaleString('pt-BR')} <small>kg</small>`;
+  document.getElementById('projecaoProgramada').innerHTML = `${programada.toLocaleString('pt-BR')} <small>kg</small>`;
+  document.getElementById('projecaoRestante').innerHTML = `${restante.toLocaleString('pt-BR')} <small>kg</small>`;
+}
+
+async function loadPedidos() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient.from('pedidos_racao').select('id, integrado_nome, galpao, data_entrega, quantidade_kg, fase, observacao').order('data_entrega', { ascending: false });
+  if (error) { console.error('Erro ao carregar pedidos de ração:', error); return; }
+  pedidos = data || [];
+  renderPedidosTable();
+  renderRelatorioPedidos();
+}
+
+function renderPedidosTable() {
+  const body = document.getElementById('pedidosTableBody');
+  if (!body) return;
+  document.getElementById('pedidosTotal').textContent = `${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'}`;
+  body.innerHTML = pedidos.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="7">Nenhum pedido registrado ainda.</td></tr>';
+}
+
+function openPedidoModal(pedido) {
+  document.getElementById('pedidoModal').hidden = false;
+  document.getElementById('pedidoEditId').value = pedido.id;
+  document.getElementById('pedidoEditIntegrado').value = pedido.integrado_nome;
+  populateGalpaoSelect(document.getElementById('pedidoEditGalpao'), pedido.integrado_nome, pedido.galpao || '');
+  document.getElementById('pedidoEditData').value = pedido.data_entrega;
+  document.getElementById('pedidoEditFase').value = pedido.fase || '';
+  document.getElementById('pedidoEditQuantidade').value = pedido.quantidade_kg;
+  document.getElementById('pedidoEditObservacao').value = pedido.observacao || '';
+  document.getElementById('pedidoEditFormError').textContent = '';
+}
+
+function closePedidoModal() {
+  document.getElementById('pedidoModal').hidden = true;
+}
+
+function renderRelatorioPedidos() {
+  const body = document.getElementById('relatorioTableBody');
+  if (!body) return;
+  const filterDate = document.getElementById('relatorioData').value;
+  const filtered = filterDate ? pedidos.filter((pedido) => pedido.data_entrega === filterDate) : [];
+  document.getElementById('relatorioTotal').textContent = filterDate ? `${filtered.length} pedido${filtered.length === 1 ? '' : 's'} em ${formatDateBr(filterDate)}` : 'Informe uma data para filtrar';
+  body.innerHTML = filtered.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para esta data.</td></tr>';
+}
+
 function openIntegratedModal(farm) {
   document.getElementById('integratedModal').hidden = false;
   document.getElementById('modalTitle').textContent = farm ? 'Editar integrado' : 'Novo integrado';
@@ -172,13 +344,16 @@ function closeIntegratedModal() {
 function showView(view) {
   const routeView = document.getElementById('routeView');
   const integratedView = document.getElementById('integratedView');
+  const racaoView = document.getElementById('racaoView');
   const isRouteView = view === 'rota';
 
   if (routeView) routeView.hidden = !isRouteView;
-  if (integratedView) integratedView.hidden = isRouteView;
+  if (integratedView) integratedView.hidden = view !== 'integratedView';
+  if (racaoView) racaoView.hidden = view !== 'racaoView';
 
   document.querySelectorAll('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   if (view === 'integratedView') renderIntegratedTable();
+  else if (view === 'racaoView') renderRacaoTable();
   else setTimeout(() => map.invalidateSize(), 0);
 }
 
@@ -187,6 +362,150 @@ document.querySelectorAll('.nav-item[data-view]').forEach((item) => item.addEven
   showView(item.dataset.view);
 }));
 document.getElementById('integratedSearch').addEventListener('input', renderIntegratedTable);
+document.getElementById('racaoSearch').addEventListener('input', renderRacaoTable);
+
+document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('click', () => {
+  document.querySelectorAll('.subnav-tab').forEach((item) => item.classList.toggle('active', item === tab));
+  document.querySelectorAll('.racao-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.racaoTab; });
+  if (tab.dataset.racaoTab === 'racaoPanelProjecao') { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); }
+  if (tab.dataset.racaoTab === 'racaoPanelProgramacao') renderPedidosTable();
+  if (tab.dataset.racaoTab === 'racaoPanelRelatorio') renderRelatorioPedidos();
+}));
+
+document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); renderProjecao(); });
+document.getElementById('projecaoGalpaoSelect').addEventListener('change', renderProjecao);
+
+document.getElementById('racaoTableBody').addEventListener('click', (event) => {
+  const button = event.target.closest('.edit-racao');
+  if (!button) return;
+  const farm = farms.find((item) => item.name === button.dataset.name);
+  if (farm) loadFarmIntoCadastro(farm);
+});
+
+document.getElementById('cadastroIntegrado').addEventListener('change', (event) => {
+  const farm = findFarm(event.target.value);
+  if (farm) loadFarmIntoCadastro(farm);
+});
+
+document.getElementById('addGalpaoField').addEventListener('click', () => addGalpaoRow());
+
+document.getElementById('calcularCadastro').addEventListener('click', async () => {
+  const name = document.getElementById('cadastroIntegrado').value.trim();
+  const error = document.getElementById('cadastroFormError');
+  const farm = findFarm(name);
+  if (!farm) { error.textContent = 'Integrado não encontrado. Verifique o nome digitado.'; return; }
+  const rows = Array.from(document.querySelectorAll('#cadastroGalpoesList .galpao-row')).map((row) => ({
+    nome: row.querySelector('.galpao-nome').value.trim(),
+    animais: Number(row.querySelector('.galpao-animais').value)
+  }));
+  if (!rows.length || rows.some((row) => !row.nome)) { error.textContent = 'Informe um nome para cada galpão.'; return; }
+  if (rows.some((row) => !Number.isFinite(row.animais) || row.animais < 0)) { error.textContent = 'Informe um número válido de animais em cada galpão.'; return; }
+  const animals = rows.reduce((total, row) => total + row.animais, 0);
+  error.textContent = '';
+  renderFeedProjection(animals);
+  const { error: deleteError } = await supabaseClient.from('galpoes_racao').delete().eq('integrado_nome', farm.name);
+  if (deleteError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${deleteError.message}`; return; }
+  const { data: inserted, error: insertError } = await supabaseClient.from('galpoes_racao').insert(rows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais }))).select();
+  if (insertError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${insertError.message}`; return; }
+  galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(inserted || []);
+  const { error: updateError } = await supabaseClient.from('integrados').update({ animais_alojados: animals }).eq('nome', farm.name);
+  if (updateError) { error.textContent = 'Projeção calculada, mas não foi possível salvar o total do lote.'; return; }
+  farm.animals = animals;
+  renderRacaoTable();
+  renderProjecaoOptions();
+});
+
+function populateGalpaoSelect(select, farmName, selectedValue = '') {
+  const farmGalpoes = getGalpoesByFarm(farmName);
+  select.innerHTML = farmGalpoes.length
+    ? '<option value="">Selecione o galpão</option>' + farmGalpoes.map((galpao) => `<option value="${escapeHtml(galpao.nome_galpao)}">${escapeHtml(galpao.nome_galpao)}</option>`).join('')
+    : '<option value="">Sem galpão cadastrado</option>';
+  select.value = selectedValue;
+}
+
+document.getElementById('pedidoIntegrado').addEventListener('input', (event) => {
+  const farm = findFarm(event.target.value);
+  populateGalpaoSelect(document.getElementById('pedidoGalpao'), farm?.name || '');
+});
+
+document.getElementById('addPedido').addEventListener('click', async () => {
+  const name = document.getElementById('pedidoIntegrado').value.trim();
+  const galpao = document.getElementById('pedidoGalpao').value;
+  const data = document.getElementById('pedidoData').value;
+  const fase = document.getElementById('pedidoFase').value;
+  const quantidade = Number(document.getElementById('pedidoQuantidade').value);
+  const observacao = document.getElementById('pedidoObservacao').value.trim();
+  const error = document.getElementById('pedidoFormError');
+  const farm = findFarm(name);
+  if (!farm) { error.textContent = 'Integrado não encontrado. Verifique o nome digitado.'; return; }
+  if (getGalpoesByFarm(farm.name).length && !galpao) { error.textContent = 'Selecione o galpão.'; return; }
+  if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
+  if (!fase) { error.textContent = 'Informe o tipo de ração.'; return; }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) { error.textContent = 'Informe uma quantidade de ração válida.'; return; }
+  const { data: inserted, error: insertError } = await supabaseClient.from('pedidos_racao').insert({ integrado_nome: farm.name, galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: observacao || null }).select().single();
+  if (insertError) {
+    console.error('Erro ao salvar pedido de ração:', insertError);
+    error.textContent = `Não foi possível salvar o pedido. Detalhes: ${insertError.message}`;
+    return;
+  }
+  error.textContent = '';
+  pedidos.unshift(inserted);
+  document.getElementById('pedidoIntegrado').value = '';
+  populateGalpaoSelect(document.getElementById('pedidoGalpao'), '');
+  document.getElementById('pedidoData').value = '';
+  document.getElementById('pedidoFase').value = '';
+  document.getElementById('pedidoQuantidade').value = '';
+  document.getElementById('pedidoObservacao').value = '';
+  renderPedidosTable();
+  renderProjecao();
+});
+
+document.getElementById('pedidosTableBody').addEventListener('click', async (event) => {
+  const editButton = event.target.closest('.edit-pedido');
+  if (editButton) {
+    const pedido = pedidos.find((item) => String(item.id) === editButton.dataset.id);
+    if (pedido) openPedidoModal(pedido);
+    return;
+  }
+  const button = event.target.closest('.delete-pedido');
+  if (!button) return;
+  const id = button.dataset.id;
+  if (!window.confirm('Excluir este pedido?')) return;
+  const { error } = await supabaseClient.from('pedidos_racao').delete().eq('id', id);
+  if (error) { window.alert('Não foi possível excluir o pedido.'); return; }
+  pedidos = pedidos.filter((pedido) => String(pedido.id) !== id);
+  renderPedidosTable();
+  renderRelatorioPedidos();
+  renderProjecao();
+});
+
+document.getElementById('closePedidoModal').addEventListener('click', closePedidoModal);
+document.getElementById('cancelPedidoModal').addEventListener('click', closePedidoModal);
+document.getElementById('pedidoModal').addEventListener('click', (event) => { if (event.target.id === 'pedidoModal') closePedidoModal(); });
+
+document.getElementById('pedidoEditForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const id = document.getElementById('pedidoEditId').value;
+  const galpao = document.getElementById('pedidoEditGalpao').value;
+  const data = document.getElementById('pedidoEditData').value;
+  const fase = document.getElementById('pedidoEditFase').value;
+  const quantidade = Number(document.getElementById('pedidoEditQuantidade').value);
+  const observacao = document.getElementById('pedidoEditObservacao').value.trim();
+  const error = document.getElementById('pedidoEditFormError');
+  if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) { error.textContent = 'Informe uma quantidade de ração válida.'; return; }
+  const { error: updateError } = await supabaseClient.from('pedidos_racao').update({ galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: observacao || null }).eq('id', id);
+  if (updateError) { error.textContent = `Não foi possível salvar. Detalhes: ${updateError.message}`; return; }
+  const pedido = pedidos.find((item) => String(item.id) === id);
+  if (pedido) { pedido.galpao = galpao || null; pedido.data_entrega = data; pedido.fase = fase; pedido.quantidade_kg = quantidade; pedido.observacao = observacao || null; }
+  renderPedidosTable();
+  renderRelatorioPedidos();
+  renderProjecao();
+  closePedidoModal();
+});
+
+document.getElementById('relatorioData').addEventListener('input', renderRelatorioPedidos);
+
 document.getElementById('newIntegrated').addEventListener('click', () => openIntegratedModal());
 document.getElementById('closeModal').addEventListener('click', closeIntegratedModal);
 document.getElementById('cancelModal').addEventListener('click', closeIntegratedModal);
@@ -254,6 +573,8 @@ loadFarms().catch((error) => {
   document.querySelector('.subtitle').textContent = `Não foi possível carregar os integrados do Supabase.${detail}`;
   console.error(error);
 });
+loadGalpoes();
+loadPedidos();
 
 function routeCoordinates(points) {
   return points.map(([latitude, longitude]) => `${longitude},${latitude}`).join(';');

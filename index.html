@@ -28,7 +28,7 @@
         <a class="nav-item" href="#mapa"><span class="nav-icon">◈</span>Mapa de granjas</a>
         <p class="nav-label secondary-label">Gestão</p>
         <a class="nav-item" href="#relatorios"><span class="nav-icon">▤</span>Relatórios</a>
-        <a class="nav-item disabled" href="#racao"><span class="nav-icon">◌</span>Programação de ração <em>em breve</em></a>
+        <a class="nav-item" data-view="racaoView" href="#racao"><span class="nav-icon">◌</span>Programação de ração</a>
       </nav>
 
       <div class="sidebar-footer">
@@ -194,11 +194,187 @@
         </table>
       </div>
     </section>
+
+    <section class="integrated-view" id="racaoView" hidden>
+      <header class="topbar integrated-topbar">
+        <div>
+          <p class="eyebrow">Gestão</p>
+          <h1>Programação de ração</h1>
+          <p class="subtitle">Cadastro de lote, pedidos dos integrados e relatório de entregas por data.</p>
+        </div>
+      </header>
+
+      <div class="subnav-tabs" role="tablist">
+        <button class="subnav-tab active" data-racao-tab="racaoPanelCadastro" type="button" role="tab">Cadastro</button>
+        <button class="subnav-tab" data-racao-tab="racaoPanelProjecao" type="button" role="tab">Projeção</button>
+        <button class="subnav-tab" data-racao-tab="racaoPanelProgramacao" type="button" role="tab">Programação</button>
+        <button class="subnav-tab" data-racao-tab="racaoPanelRelatorio" type="button" role="tab">Relatório</button>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelCadastro">
+        <div class="control-panel racao-form-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Lote</span><h2>Cadastrar animais alojados</h2></div>
+          </div>
+          <div class="form-stack">
+            <label class="field-label" for="cadastroIntegrado">Integrado</label>
+            <div class="select-wrap autocomplete-wrap">
+              <span class="field-icon target-icon">⌖</span>
+              <input id="cadastroIntegrado" list="farmOptions" autocomplete="off" placeholder="Digite o nome do integrado">
+            </div>
+            <label class="field-label">Galpões</label>
+            <div id="cadastroGalpoesList"></div>
+            <button class="quiet-button" id="addGalpaoField" type="button">+ Adicionar galpão</button>
+            <p class="galpao-total-note" id="cadastroGalpoesTotal">Total: 0 animais</p>
+            <p class="form-error" id="cadastroFormError" role="alert"></p>
+            <button class="primary-button" id="calcularCadastro" type="button">Salvar galpões e calcular projeção</button>
+          </div>
+        </div>
+        <div class="metric-grid">
+          <article class="metric-card"><span class="metric-label">Ração do ciclo completo</span><strong id="cadastroTotalCiclo">— <small>kg</small></strong><span class="metric-note">Estimado em 236 kg por animal alojado</span></article>
+        </div>
+        <div class="table-wrap integrated-table-wrap">
+          <table><thead><tr><th>Fase</th><th>kg por animal</th><th>Projeção (kg)</th></tr></thead>
+            <tbody id="cadastroProjecaoBody"></tbody>
+          </table>
+        </div>
+        <div class="integrated-toolbar">
+          <div class="search-control"><span>⌕</span><input id="racaoSearch" type="search" placeholder="Buscar por nome ou cidade"></div>
+          <span class="integrated-total" id="racaoTotal"></span>
+        </div>
+        <div class="table-wrap integrated-table-wrap">
+          <table><thead><tr><th>Integrado</th><th>Cidade</th><th>Animais alojados</th><th>Ração do ciclo</th><th>Ações</th></tr></thead>
+            <tbody id="racaoTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelProjecao" hidden>
+        <div class="control-panel racao-form-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Projeção</span><h2>Consumo por fase</h2></div>
+          </div>
+          <div class="form-stack">
+            <label class="field-label" for="projecaoSelect">Integrado cadastrado</label>
+            <div class="select-wrap">
+              <select id="projecaoSelect"><option value="">Selecione um integrado</option></select>
+            </div>
+            <label class="field-label" for="projecaoGalpaoSelect">Galpão</label>
+            <div class="select-wrap">
+              <select id="projecaoGalpaoSelect"><option value="">Todos os galpões (total)</option></select>
+            </div>
+          </div>
+        </div>
+        <p class="empty-results" id="projecaoEmpty">Cadastre um integrado na aba "Cadastro" para ver a projeção aqui.</p>
+        <p class="chart-info-note" id="projecaoRscaInfo"></p>
+        <div class="metric-grid">
+          <article class="metric-card"><span class="metric-label">Ração do ciclo completo</span><strong id="projecaoTotalCiclo">— <small>kg</small></strong><span class="metric-note">Estimado em 236 kg por animal alojado</span></article>
+          <article class="metric-card"><span class="metric-label">Ração já programada</span><strong id="projecaoProgramada">— <small>kg</small></strong><span class="metric-note">Soma dos pedidos lançados</span></article>
+          <article class="metric-card"><span class="metric-label">Ração que falta programar</span><strong id="projecaoRestante">— <small>kg</small></strong><span class="metric-note">Ciclo completo menos o já programado</span></article>
+        </div>
+        <div class="chart-bars" id="projecaoChart"></div>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelProgramacao" hidden>
+        <div class="control-panel racao-form-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Pedido</span><h2>Registrar pedido de ração</h2></div>
+          </div>
+          <div class="form-stack">
+            <label class="field-label" for="pedidoIntegrado">Integrado</label>
+            <div class="select-wrap autocomplete-wrap">
+              <span class="field-icon target-icon">⌖</span>
+              <input id="pedidoIntegrado" list="farmOptions" autocomplete="off" placeholder="Digite o nome do integrado">
+            </div>
+            <label class="field-label" for="pedidoGalpao">Galpão</label>
+            <div class="select-wrap">
+              <select id="pedidoGalpao"><option value="">Sem galpão cadastrado</option></select>
+            </div>
+            <label class="field-label" for="pedidoData">Data da entrega</label>
+            <input id="pedidoData" type="date">
+            <label class="field-label" for="pedidoFase">Tipo de ração</label>
+            <div class="select-wrap">
+              <select id="pedidoFase">
+                <option value="">Selecione a fase</option>
+                <option value="RSC-1">RSC-1</option>
+                <option value="RSC-2">RSC-2</option>
+                <option value="RSC-3">RSC-3</option>
+                <option value="RST-2">RST-2</option>
+                <option value="RST-3">RST-3</option>
+              </select>
+            </div>
+            <label class="field-label" for="pedidoQuantidade">Quantidade de ração (kg)</label>
+            <input id="pedidoQuantidade" type="number" min="0" step="1" placeholder="Ex.: 3000">
+            <label class="field-label" for="pedidoObservacao">Observação</label>
+            <textarea id="pedidoObservacao" class="observacao-textarea" rows="2" placeholder="Informações para quem for carregar/entregar"></textarea>
+            <p class="form-error" id="pedidoFormError" role="alert"></p>
+            <button class="primary-button" id="addPedido" type="button">Adicionar pedido</button>
+          </div>
+        </div>
+        <div class="integrated-toolbar">
+          <span class="section-kicker">Histórico de pedidos</span>
+          <span class="integrated-total" id="pedidosTotal"></span>
+        </div>
+        <div class="table-wrap integrated-table-wrap">
+          <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th><th>Ações</th></tr></thead>
+            <tbody id="pedidosTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="pedidoModal" hidden>
+        <form class="integrated-modal" id="pedidoEditForm">
+          <div class="modal-header"><div><span class="section-kicker">Pedido</span><h2>Editar pedido</h2></div><button class="modal-close" id="closePedidoModal" type="button" aria-label="Fechar">×</button></div>
+          <input id="pedidoEditId" type="hidden">
+          <div class="integrated-form-grid">
+            <label>Integrado<input id="pedidoEditIntegrado" disabled></label>
+            <label>Galpão
+              <select id="pedidoEditGalpao"><option value="">Sem galpão cadastrado</option></select>
+            </label>
+            <label>Data da entrega<input id="pedidoEditData" type="date"></label>
+            <label>Tipo de ração
+              <select id="pedidoEditFase">
+                <option value="RSC-1">RSC-1</option>
+                <option value="RSC-2">RSC-2</option>
+                <option value="RSC-3">RSC-3</option>
+                <option value="RST-2">RST-2</option>
+                <option value="RST-3">RST-3</option>
+              </select>
+            </label>
+            <label>Quantidade de ração (kg)<input id="pedidoEditQuantidade" type="number" min="0" step="1"></label>
+          </div>
+          <label class="field-label" for="pedidoEditObservacao">Observação</label>
+          <textarea id="pedidoEditObservacao" class="observacao-textarea" rows="2"></textarea>
+          <p class="form-error" id="pedidoEditFormError" role="alert"></p>
+          <div class="modal-actions"><button class="quiet-button" id="cancelPedidoModal" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar</button></div>
+        </form>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelRelatorio" hidden>
+        <div class="control-panel racao-form-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Relatório</span><h2>Pedidos por data de entrega</h2></div>
+          </div>
+          <div class="form-stack">
+            <label class="field-label" for="relatorioData">Data da entrega</label>
+            <input id="relatorioData" type="date">
+          </div>
+        </div>
+        <div class="integrated-toolbar">
+          <span class="integrated-total" id="relatorioTotal"></span>
+        </div>
+        <div class="table-wrap integrated-table-wrap">
+          <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th></tr></thead>
+            <tbody id="relatorioTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="dados-integrados.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js"></script>
-  <script src="app.js?v=20260830-18"></script>
+  <script src="app.js?v=20260830-26"></script>
 </body>
 </html>
