@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rota Suína | Planejamento logístico</title>
+  <title>Programa de distribuição de ração suína</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -16,8 +16,8 @@
       <div class="brand">
         <div class="brand-mark">RS</div>
         <div>
-          <strong>Rota Suína</strong>
-          <span>Logística integrada</span>
+          <strong>Programa de distribuição de ração suína</strong>
+          <span>Distribuição de ração</span>
         </div>
       </div>
 
@@ -25,9 +25,7 @@
         <p class="nav-label">Operação</p>
         <a class="nav-item active" data-view="rota" href="#rota"><span class="nav-icon">⌁</span>Planejar rota</a>
         <a class="nav-item" data-view="integratedView" href="#integrados"><span class="nav-icon">⌖</span>Integrados <span class="nav-count">146</span></a>
-        <a class="nav-item" href="#mapa"><span class="nav-icon">◈</span>Mapa de granjas</a>
         <p class="nav-label secondary-label">Gestão</p>
-        <a class="nav-item" href="#relatorios"><span class="nav-icon">▤</span>Relatórios</a>
         <a class="nav-item" data-view="racaoView" href="#racao"><span class="nav-icon">◌</span>Programação de ração</a>
       </nav>
 
@@ -222,12 +220,12 @@
               <span class="field-icon target-icon">⌖</span>
               <input id="cadastroIntegrado" list="farmOptions" autocomplete="off" placeholder="Digite o nome do integrado">
             </div>
-            <label class="field-label">Galpões</label>
+            <label class="field-label">Galpões (opcional)</label>
             <div id="cadastroGalpoesList"></div>
             <button class="quiet-button" id="addGalpaoField" type="button">+ Adicionar galpão</button>
             <p class="galpao-total-note" id="cadastroGalpoesTotal">Total: 0 animais</p>
             <p class="form-error" id="cadastroFormError" role="alert"></p>
-            <button class="primary-button" id="calcularCadastro" type="button">Salvar galpões e calcular projeção</button>
+            <button class="primary-button" id="calcularCadastro" type="button">Salvar animais e calcular projeção</button>
           </div>
         </div>
         <div class="metric-grid">
@@ -267,12 +265,26 @@
         </div>
         <p class="empty-results" id="projecaoEmpty">Cadastre um integrado na aba "Cadastro" para ver a projeção aqui.</p>
         <p class="chart-info-note" id="projecaoRscaInfo"></p>
-        <div class="metric-grid">
+        <div class="metric-grid projecao-metric-grid">
+          <article class="metric-card"><span class="metric-label">Animais alojados</span><strong id="projecaoAnimaisAlojados">—</strong><span class="metric-note">Total conforme o filtro selecionado</span></article>
           <article class="metric-card"><span class="metric-label">Ração do ciclo completo</span><strong id="projecaoTotalCiclo">— <small>kg</small></strong><span class="metric-note">Estimado em 236 kg por animal alojado</span></article>
           <article class="metric-card"><span class="metric-label">Ração já programada</span><strong id="projecaoProgramada">— <small>kg</small></strong><span class="metric-note">Soma dos pedidos lançados</span></article>
           <article class="metric-card"><span class="metric-label">Ração que falta programar</span><strong id="projecaoRestante">— <small>kg</small></strong><span class="metric-note">Ciclo completo menos o já programado</span></article>
         </div>
-        <div class="chart-bars" id="projecaoChart"></div>
+        <div class="projecao-columns">
+          <div class="chart-bars" id="projecaoChart"></div>
+          <section class="projecao-cargas" aria-labelledby="projecaoCargasTitle">
+            <div class="projecao-cargas-heading">
+              <div><span class="section-kicker">Histórico</span><h2 id="projecaoCargasTitle">Cargas enviadas</h2></div>
+              <span class="integrated-total" id="projecaoPedidosTotal">0 cargas</span>
+            </div>
+            <div class="table-wrap">
+              <table><thead><tr><th>Galpão</th><th>Entrega</th><th>Fase</th><th>Quantidade</th><th>Ações</th></tr></thead>
+                <tbody id="projecaoPedidosBody"><tr><td colspan="4">Selecione um integrado.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
       </div>
 
       <div class="racao-panel" id="racaoPanelProgramacao" hidden>
@@ -362,6 +374,10 @@
         </div>
         <div class="integrated-toolbar">
           <span class="integrated-total" id="relatorioTotal"></span>
+          <div class="report-export-actions">
+            <button class="quiet-button" id="exportRelatorioExcel" type="button" title="Exportar relatório para Excel">Excel</button>
+            <button class="quiet-button" id="exportRelatorioPdf" type="button" title="Exportar relatório para PDF">PDF</button>
+          </div>
         </div>
         <div class="table-wrap integrated-table-wrap">
           <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th></tr></thead>
@@ -375,6 +391,9 @@
   <script src="dados-integrados.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="app.js?v=20260830-26"></script>
 </body>
 </html>

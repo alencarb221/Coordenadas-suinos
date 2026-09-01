@@ -51,18 +51,24 @@ function escapeHtml(value) {
 }
 
 function refreshFarmSources() {
-  farmOptions.innerHTML = '';
   farms.sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
-  farms.forEach((farm) => {
-    const option = document.createElement('option');
-    option.value = `${farm.name} · ${farm.city}`;
-    farmOptions.appendChild(option);
-  });
+  renderFarmOptions('');
   document.querySelector('.nav-count').textContent = farms.length;
   document.querySelector('.draft-badge').textContent = `${farms.length} pontos carregados`;
   renderIntegratedTable();
   renderRacaoTable();
   renderProjecaoOptions();
+}
+
+function renderFarmOptions(query) {
+  const normalizedQuery = normalizeText(query);
+  farmOptions.innerHTML = '';
+  if (!normalizedQuery) return;
+  farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(normalizedQuery))).forEach((farm) => {
+    const option = document.createElement('option');
+    option.value = `${farm.name} · ${farm.city}`;
+    farmOptions.appendChild(option);
+  });
 }
 
 function scheduleFarmRefresh() {
@@ -90,6 +96,10 @@ function renderRoutePoints(primaryFarm, selectedCandidates) {
 
 function normalizeText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+function isTpLabel(value) {
+  return /^tp(?:\s*\d+)?$/.test(normalizeText(value));
 }
 
 function formatDateBr(isoDate) {
@@ -148,14 +158,7 @@ async function loadFarms() {
   const { data, error } = await supabaseClient.from('integrados').select('nome, cidade, latitude, longitude, animais_alojados, fase_racao').order('nome');
   if (error) throw error;
   const remoteFarms = data.map((row) => ({ name: row.nome, city: row.cidade, coords: [row.latitude, row.longitude], animals: row.animais_alojados || 0, phase: row.fase_racao || '' }));
-  const localFarms = Array.isArray(window.INTEGRATED_DATA) ? window.INTEGRATED_DATA : [];
-  const remoteNames = new Set(remoteFarms.map((farm) => normalizeText(farm.name)));
-  const missingFarms = localFarms.filter((farm) => !remoteNames.has(normalizeText(farm.name))).map((farm) => ({ ...farm, animals: 0, phase: '' }));
-  if (missingFarms.length) {
-    const { error: seedError } = await supabaseClient.from('integrados').insert(missingFarms.map((farm) => ({ nome: farm.name, cidade: farm.city, latitude: farm.coords[0], longitude: farm.coords[1] })));
-    if (seedError) throw seedError;
-  }
-  farms = [...remoteFarms, ...missingFarms];
+  farms = remoteFarms;
   baseFarms = farms;
   refreshFarmSources();
   farmsLoaded = true;
@@ -166,7 +169,7 @@ async function loadFarms() {
 function renderIntegratedTable() {
   const body = document.getElementById('integratedTableBody');
   if (!body) return;
-  const query = normalizeText(document.getElementById('integratedSearch')?.value);
+    const query = normalizeText(document.getElementById('integratedSearch')?.value || '');
   const visibleFarms = farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
   document.getElementById('integratedTotal').textContent = `${visibleFarms.length} de ${farms.length} integrados`;
   body.innerHTML = visibleFarms.map((farm) => `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.coords[0].toFixed(6)}</td><td>${farm.coords[1].toFixed(6)}</td><td><a class="table-action" href="${googleMapsPointUrl(farm.coords)}" target="_blank" rel="noopener">Google Maps</a></td><td class="table-actions"><button class="table-action edit-integrated" type="button" data-name="${escapeHtml(farm.name)}">Editar</button><button class="table-action delete-integrated" type="button" data-name="${escapeHtml(farm.name)}">Excluir</button></td></tr>`).join('');
@@ -175,7 +178,7 @@ function renderIntegratedTable() {
 function renderRacaoTable() {
   const body = document.getElementById('racaoTableBody');
   if (!body) return;
-  const query = normalizeText(document.getElementById('racaoSearch')?.value);
+    const query = normalizeText(document.getElementById('racaoSearch')?.value || '');
   const visibleFarms = farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
   document.getElementById('racaoTotal').textContent = `${visibleFarms.length} de ${farms.length} integrados`;
   body.innerHTML = visibleFarms.map((farm) => {
@@ -208,14 +211,14 @@ async function loadGalpoes() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.from('galpoes_racao').select('id, integrado_nome, nome_galpao, animais_alojados').order('nome_galpao');
   if (error) { console.error('Erro ao carregar galpões:', error); return; }
-  galpoes = data || [];
+  galpoes = (data || []).filter((galpao) => !isTpLabel(galpao.nome_galpao));
 }
 
 function addGalpaoRow(nome = '', animais = '') {
   const list = document.getElementById('cadastroGalpoesList');
   const row = document.createElement('div');
   row.className = 'galpao-row';
-  row.innerHTML = `<input type="text" class="galpao-nome" placeholder="Nome do galpão" value="${escapeHtml(nome)}"><input type="number" class="galpao-animais" min="0" step="1" placeholder="Animais" value="${animais}"><button type="button" class="remove-galpao" aria-label="Remover galpão">×</button>`;
+  row.innerHTML = `<input type="text" class="galpao-nome" placeholder="Nome do galpão (opcional)" value="${escapeHtml(nome)}"><input type="number" class="galpao-animais" min="0" step="1" placeholder="Animais alojados" value="${animais}"><button type="button" class="remove-galpao" aria-label="Remover galpão">×</button>`;
   row.querySelector('.remove-galpao').addEventListener('click', () => { row.remove(); updateCadastroGalpoesTotal(); });
   row.querySelector('.galpao-animais').addEventListener('input', updateCadastroGalpoesTotal);
   list.appendChild(row);
@@ -258,13 +261,17 @@ function renderProjecao() {
     document.getElementById('projecaoTotalCiclo').innerHTML = '— <small>kg</small>';
     document.getElementById('projecaoProgramada').innerHTML = '— <small>kg</small>';
     document.getElementById('projecaoRestante').innerHTML = '— <small>kg</small>';
+    document.getElementById('projecaoAnimaisAlojados').textContent = '—';
+    renderProjecaoPedidos([]);
     return;
   }
   empty.hidden = true;
   const animals = galpaoFiltro
     ? (getGalpoesByFarm(farm.name).find((galpao) => galpao.nome_galpao === galpaoFiltro)?.animais_alojados || 0)
     : (farm.animals || 0);
-  const farmPedidos = pedidos.filter((pedido) => pedido.integrado_nome === farm.name && (!galpaoFiltro || pedido.galpao === galpaoFiltro));
+  const farmPedidos = pedidos
+    .filter((pedido) => pedido.integrado_nome === farm.name && (!galpaoFiltro || pedido.galpao === galpaoFiltro))
+    .sort(compareFeedOrders);
   const [rscaPhase, ...chartPhases] = FEED_PHASES;
   rscaInfo.textContent = `${rscaPhase.sigla} (${rscaPhase.label}): ${(animals * rscaPhase.kgPorAnimal).toLocaleString('pt-BR')} kg — apenas informativo, o alojamento é controlado por outro sistema.`;
   const phaseData = chartPhases.map((phase) => {
@@ -279,16 +286,34 @@ function renderProjecao() {
   const totalCiclo = animals * FEED_CYCLE_KG_POR_ANIMAL;
   const programada = farmPedidos.reduce((total, pedido) => total + Number(pedido.quantidade_kg), 0);
   const restante = Math.max(0, totalCiclo - programada);
+  document.getElementById('projecaoAnimaisAlojados').textContent = animals.toLocaleString('pt-BR');
   document.getElementById('projecaoTotalCiclo').innerHTML = `${totalCiclo.toLocaleString('pt-BR')} <small>kg</small>`;
   document.getElementById('projecaoProgramada').innerHTML = `${programada.toLocaleString('pt-BR')} <small>kg</small>`;
   document.getElementById('projecaoRestante').innerHTML = `${restante.toLocaleString('pt-BR')} <small>kg</small>`;
+  renderProjecaoPedidos(farmPedidos);
+}
+
+function renderProjecaoPedidos(farmPedidos) {
+  const body = document.getElementById('projecaoPedidosBody');
+  const total = document.getElementById('projecaoPedidosTotal');
+  if (!body || !total) return;
+  total.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
+  body.innerHTML = farmPedidos.map((pedido) => `<tr><td>${escapeHtml(pedido.galpao || 'Sem galpão')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="5">Nenhuma carga enviada para este filtro.</td></tr>';
+}
+
+function compareFeedOrders(first, second) {
+  const firstPhase = FEED_PHASES.findIndex((phase) => phase.sigla === first.fase);
+  const secondPhase = FEED_PHASES.findIndex((phase) => phase.sigla === second.fase);
+  if (firstPhase !== secondPhase) return (firstPhase < 0 ? FEED_PHASES.length : firstPhase) - (secondPhase < 0 ? FEED_PHASES.length : secondPhase);
+  const dateOrder = String(first.data_entrega || '').localeCompare(String(second.data_entrega || ''));
+  return dateOrder || String(first.id || '').localeCompare(String(second.id || ''));
 }
 
 async function loadPedidos() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.from('pedidos_racao').select('id, integrado_nome, galpao, data_entrega, quantidade_kg, fase, observacao').order('data_entrega', { ascending: false });
   if (error) { console.error('Erro ao carregar pedidos de ração:', error); return; }
-  pedidos = data || [];
+  pedidos = (data || []).map((pedido) => ({ ...pedido, galpao: isTpLabel(pedido.galpao) ? null : pedido.galpao }));
   renderPedidosTable();
   renderRelatorioPedidos();
 }
@@ -297,7 +322,7 @@ function renderPedidosTable() {
   const body = document.getElementById('pedidosTableBody');
   if (!body) return;
   document.getElementById('pedidosTotal').textContent = `${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'}`;
-  body.innerHTML = pedidos.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="7">Nenhum pedido registrado ainda.</td></tr>';
+  body.innerHTML = pedidos.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido registrado ainda.</td></tr>';
 }
 
 function openPedidoModal(pedido) {
@@ -319,10 +344,54 @@ function closePedidoModal() {
 function renderRelatorioPedidos() {
   const body = document.getElementById('relatorioTableBody');
   if (!body) return;
-  const filterDate = document.getElementById('relatorioData').value;
-  const filtered = filterDate ? pedidos.filter((pedido) => pedido.data_entrega === filterDate) : [];
+  const { filterDate, filtered } = getRelatorioPedidos();
   document.getElementById('relatorioTotal').textContent = filterDate ? `${filtered.length} pedido${filtered.length === 1 ? '' : 's'} em ${formatDateBr(filterDate)}` : 'Informe uma data para filtrar';
   body.innerHTML = filtered.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para esta data.</td></tr>';
+}
+
+function getRelatorioPedidos() {
+  const filterDate = document.getElementById('relatorioData').value;
+  return { filterDate, filtered: filterDate ? pedidos.filter((pedido) => pedido.data_entrega === filterDate) : [] };
+}
+
+function validateRelatorioExport() {
+  const { filterDate, filtered } = getRelatorioPedidos();
+  if (!filterDate) { window.alert('Selecione uma data para exportar o relatório.'); return null; }
+  if (!filtered.length) { window.alert('Não há pedidos para a data selecionada.'); return null; }
+  return { filterDate, filtered };
+}
+
+function exportRelatorioExcel() {
+  const report = validateRelatorioExport();
+  if (!report || !window.XLSX) return;
+  const rows = report.filtered.map((pedido) => ({
+    Integrado: pedido.integrado_nome,
+    Galpão: pedido.galpao || '',
+    'Data de entrega': formatDateBr(pedido.data_entrega),
+    Fase: pedido.fase || '—',
+    'Quantidade (kg)': Number(pedido.quantidade_kg),
+    Observação: pedido.observacao || '—'
+  }));
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
+  XLSX.writeFile(workbook, `relatorio-pedidos-${report.filterDate}.xlsx`);
+}
+
+function exportRelatorioPdf() {
+  const report = validateRelatorioExport();
+  if (!report || !window.jspdf) return;
+  const documentPdf = new window.jspdf.jsPDF({ orientation: 'landscape' });
+  documentPdf.setFontSize(16);
+  documentPdf.text(`Relatório de pedidos - ${formatDateBr(report.filterDate)}`, 14, 16);
+  documentPdf.autoTable({
+    startY: 24,
+    head: [['Integrado', 'Galpão', 'Data de entrega', 'Fase', 'Quantidade (kg)', 'Observação']],
+    body: report.filtered.map((pedido) => [pedido.integrado_nome, pedido.galpao || '', formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—']),
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [35, 117, 99] }
+  });
+  documentPdf.save(`relatorio-pedidos-${report.filterDate}.pdf`);
 }
 
 function openIntegratedModal(farm) {
@@ -363,6 +432,9 @@ document.querySelectorAll('.nav-item[data-view]').forEach((item) => item.addEven
 }));
 document.getElementById('integratedSearch').addEventListener('input', renderIntegratedTable);
 document.getElementById('racaoSearch').addEventListener('input', renderRacaoTable);
+document.addEventListener('input', (event) => {
+  if (event.target.matches('input[list="farmOptions"]')) renderFarmOptions(event.target.value);
+});
 
 document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('click', () => {
   document.querySelectorAll('.subnav-tab').forEach((item) => item.classList.toggle('active', item === tab));
@@ -398,14 +470,17 @@ document.getElementById('calcularCadastro').addEventListener('click', async () =
     nome: row.querySelector('.galpao-nome').value.trim(),
     animais: Number(row.querySelector('.galpao-animais').value)
   }));
-  if (!rows.length || rows.some((row) => !row.nome)) { error.textContent = 'Informe um nome para cada galpão.'; return; }
+  if (!rows.length) { error.textContent = 'Informe os animais alojados.'; return; }
   if (rows.some((row) => !Number.isFinite(row.animais) || row.animais < 0)) { error.textContent = 'Informe um número válido de animais em cada galpão.'; return; }
   const animals = rows.reduce((total, row) => total + row.animais, 0);
+  const namedRows = rows.filter((row) => row.nome && !isTpLabel(row.nome));
   error.textContent = '';
   renderFeedProjection(animals);
   const { error: deleteError } = await supabaseClient.from('galpoes_racao').delete().eq('integrado_nome', farm.name);
   if (deleteError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${deleteError.message}`; return; }
-  const { data: inserted, error: insertError } = await supabaseClient.from('galpoes_racao').insert(rows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais }))).select();
+  const { data: inserted, error: insertError } = namedRows.length
+    ? await supabaseClient.from('galpoes_racao').insert(namedRows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais }))).select()
+    : { data: [], error: null };
   if (insertError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${insertError.message}`; return; }
   galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(inserted || []);
   const { error: updateError } = await supabaseClient.from('integrados').update({ animais_alojados: animals }).eq('nome', farm.name);
@@ -460,7 +535,7 @@ document.getElementById('addPedido').addEventListener('click', async () => {
   renderProjecao();
 });
 
-document.getElementById('pedidosTableBody').addEventListener('click', async (event) => {
+document.getElementById('projecaoPedidosBody').addEventListener('click', async (event) => {
   const editButton = event.target.closest('.edit-pedido');
   if (editButton) {
     const pedido = pedidos.find((item) => String(item.id) === editButton.dataset.id);
@@ -505,6 +580,8 @@ document.getElementById('pedidoEditForm').addEventListener('submit', async (even
 });
 
 document.getElementById('relatorioData').addEventListener('input', renderRelatorioPedidos);
+document.getElementById('exportRelatorioExcel').addEventListener('click', exportRelatorioExcel);
+document.getElementById('exportRelatorioPdf').addEventListener('click', exportRelatorioPdf);
 
 document.getElementById('newIntegrated').addEventListener('click', () => openIntegratedModal());
 document.getElementById('closeModal').addEventListener('click', closeIntegratedModal);
@@ -524,37 +601,35 @@ document.getElementById('integratedForm').addEventListener('submit', async (even
     return;
   }
   if (duplicate) { error.textContent = 'Já existe um integrado com este nome.'; return; }
-  const updatedFarm = { name, city, coords };
   if (originalName) {
-    const index = farms.findIndex((farm) => farm.name === originalName);
-    if (index >= 0) farms[index] = updatedFarm;
     const { error: updateError } = await supabaseClient.from('integrados').update({ nome: name, cidade: city, latitude: coords[0], longitude: coords[1] }).eq('nome', originalName);
     if (updateError) { error.textContent = 'Não foi possível atualizar o integrado.'; return; }
+    const index = farms.findIndex((farm) => farm.name === originalName);
+    if (index >= 0) farms[index] = { ...farms[index], name, city, coords };
   } else {
     const { error: insertError } = await supabaseClient.from('integrados').insert({ nome: name, cidade: city, latitude: coords[0], longitude: coords[1] });
     if (insertError) { error.textContent = 'Não foi possível salvar o integrado.'; return; }
-    farms.push(updatedFarm);
+    farms.push({ name, city, coords, animals: 0, phase: '' });
   }
   scheduleFarmRefresh();
   renderMapSelection();
   closeIntegratedModal();
 });
 
-document.getElementById('integratedTableBody').addEventListener('click', (event) => {
+document.getElementById('integratedTableBody').addEventListener('click', async (event) => {
   const button = event.target.closest('.table-action');
   if (!button) return;
   const farm = farms.find((item) => item.name === button.dataset.name);
   if (!farm) return;
   if (button.classList.contains('edit-integrated')) openIntegratedModal(farm);
   if (button.classList.contains('delete-integrated') && window.confirm(`Excluir o integrado ${farm.name}?`)) {
-    supabaseClient.from('integrados').delete().eq('nome', farm.name).then(({ error }) => {
-      if (error) { window.alert('Não foi possível excluir o integrado.'); return; }
+    const { error } = await supabaseClient.from('integrados').delete().eq('nome', farm.name);
+    if (error) { window.alert('Não foi possível excluir o integrado.'); return; }
     farms = farms.filter((item) => item.name !== farm.name);
     selected.splice(0, selected.length, ...selected.filter((item) => item.name !== farm.name));
     scheduleFarmRefresh();
     renderSelected();
     renderMapSelection();
-    });
   }
 });
 
@@ -566,6 +641,18 @@ function findFarm(value) {
     || farms.find((farm) => normalizeText(farm.name).startsWith(normalized))
     || farms.find((farm) => normalizeText(farm.name).includes(normalized));
 }
+
+function syncMapHeightWithMeasurement() {
+  const mapPanel = document.getElementById('mapa');
+  const measurementPanel = document.querySelector('.manual-distance-panel');
+  if (!mapPanel || !measurementPanel) return;
+  mapPanel.style.height = `${Math.round(measurementPanel.offsetHeight * 1.5)}px`;
+  requestAnimationFrame(() => map.invalidateSize());
+}
+
+syncMapHeightWithMeasurement();
+window.addEventListener('resize', syncMapHeightWithMeasurement);
+if (window.ResizeObserver) new ResizeObserver(syncMapHeightWithMeasurement).observe(document.querySelector('.manual-distance-panel'));
 
 loadFarms().catch((error) => {
   document.querySelector('.draft-badge').textContent = 'Erro ao carregar pontos';

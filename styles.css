@@ -327,7 +327,7 @@ h2 {
 .route-workspace {
   display: grid;
   grid-template-columns: minmax(280px, 350px) 1fr;
-  min-height: 490px;
+  min-height: 245px;
   margin-top: 34px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -631,7 +631,9 @@ h2 {
 }
 .map-panel {
   position: relative;
-  min-height: 490px;
+  height: 245px;
+  min-height: 0;
+  align-self: start;
   background: #dfe8e3;
 }
 #map {
@@ -738,6 +740,9 @@ h2 {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 18px;
+}
+.projecao-metric-grid {
+  grid-template-columns: repeat(4, 1fr);
 }
 .metric-card {
   min-height: 112px;
@@ -928,6 +933,44 @@ h2 {
   gap: 12px;
   margin-top: 20px;
 }
+.projecao-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.95fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 20px;
+}
+.projecao-columns .chart-bars {
+  margin-top: 0;
+}
+.projecao-cargas {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.projecao-cargas-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 17px;
+  border-bottom: 1px solid var(--line);
+}
+.projecao-cargas-heading h2 {
+  margin: 3px 0 0;
+  font-size: 17px;
+}
+.projecao-cargas .table-wrap {
+  border: 0;
+  border-radius: 0;
+  max-height: 390px;
+  overflow: auto;
+}
+.projecao-cargas table {
+  min-width: 520px;
+}
 .chart-legend {
   display: flex;
   gap: 18px;
@@ -1034,6 +1077,10 @@ h2 {
   justify-content: space-between;
   gap: 15px;
   margin-top: 32px;
+}
+.report-export-actions {
+  display: flex;
+  gap: 8px;
 }
 .search-control {
   display: flex;
@@ -1346,7 +1393,7 @@ tbody tr:last-child td {
     order: 2;
   }
   .map-panel {
-    min-height: 390px;
+    height: 195px;
     order: 1;
   }
   .map-title span:last-child {
@@ -1360,6 +1407,9 @@ tbody tr:last-child td {
   .metric-grid {
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+  .projecao-columns {
+    grid-template-columns: 1fr;
   }
   .metric-card {
     padding: 13px;
