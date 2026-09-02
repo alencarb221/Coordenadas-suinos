@@ -188,9 +188,13 @@ function renderRacaoTable() {
 }
 
 function renderFeedProjection(animals) {
-  const body = document.getElementById('cadastroProjecaoBody');
+  renderFeedProjectionInto('cadastroProjecaoBody', 'cadastroTotalCiclo', animals);
+}
+
+function renderFeedProjectionInto(bodyId, totalId, animals) {
+  const body = document.getElementById(bodyId);
   body.innerHTML = FEED_PHASES.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${phase.kgPorAnimal}</td><td>${(animals * phase.kgPorAnimal).toLocaleString('pt-BR')} kg</td></tr>`).join('');
-  document.getElementById('cadastroTotalCiclo').innerHTML = `${(animals * FEED_CYCLE_KG_POR_ANIMAL).toLocaleString('pt-BR')} <small>kg</small>`;
+  document.getElementById(totalId).innerHTML = `${(animals * FEED_CYCLE_KG_POR_ANIMAL).toLocaleString('pt-BR')} <small>kg</small>`;
 }
 
 function loadFarmIntoCadastro(farm) {
@@ -207,6 +211,31 @@ function getGalpoesByFarm(name) {
   return galpoes.filter((galpao) => galpao.integrado_nome === name);
 }
 
+let racaoDetalheFarmName = '';
+
+function openRacaoDetalheModal(farm) {
+  racaoDetalheFarmName = farm.name;
+  document.getElementById('racaoDetalheModal').hidden = false;
+  document.getElementById('racaoDetalheTitle').textContent = farm.name;
+  document.getElementById('racaoDetalheFormError').textContent = '';
+  const list = document.getElementById('racaoDetalheGalpoesList');
+  list.innerHTML = '';
+  const farmGalpoes = getGalpoesByFarm(farm.name);
+  if (farmGalpoes.length) farmGalpoes.forEach((galpao) => addGalpaoRow(galpao.nome_galpao, galpao.animais_alojados, 'racaoDetalheGalpoesList', updateRacaoDetalhe));
+  else addGalpaoRow('', farm.animals || 0, 'racaoDetalheGalpoesList', updateRacaoDetalhe);
+  updateRacaoDetalhe();
+}
+
+function updateRacaoDetalhe() {
+  const total = updateGalpoesTotal('racaoDetalheGalpoesList', 'racaoDetalheGalpoesTotal');
+  renderFeedProjectionInto('racaoDetalheProjecaoBody', 'racaoDetalheTotalCiclo', total);
+}
+
+function closeRacaoDetalheModal() {
+  document.getElementById('racaoDetalheModal').hidden = true;
+  racaoDetalheFarmName = '';
+}
+
 async function loadGalpoes() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.from('galpoes_racao').select('id, integrado_nome, nome_galpao, animais_alojados').order('nome_galpao');
@@ -214,20 +243,24 @@ async function loadGalpoes() {
   galpoes = (data || []).filter((galpao) => !isTpLabel(galpao.nome_galpao));
 }
 
-function addGalpaoRow(nome = '', animais = '') {
-  const list = document.getElementById('cadastroGalpoesList');
+function addGalpaoRow(nome = '', animais = '', listId = 'cadastroGalpoesList', onChange = updateCadastroGalpoesTotal) {
+  const list = document.getElementById(listId);
   const row = document.createElement('div');
   row.className = 'galpao-row';
   row.innerHTML = `<input type="text" class="galpao-nome" placeholder="Nome do galpão (opcional)" value="${escapeHtml(nome)}"><input type="number" class="galpao-animais" min="0" step="1" placeholder="Animais alojados" value="${animais}"><button type="button" class="remove-galpao" aria-label="Remover galpão">×</button>`;
-  row.querySelector('.remove-galpao').addEventListener('click', () => { row.remove(); updateCadastroGalpoesTotal(); });
-  row.querySelector('.galpao-animais').addEventListener('input', updateCadastroGalpoesTotal);
+  row.querySelector('.remove-galpao').addEventListener('click', () => { row.remove(); onChange(); });
+  row.querySelector('.galpao-animais').addEventListener('input', onChange);
   list.appendChild(row);
 }
 
-function updateCadastroGalpoesTotal() {
-  const total = Array.from(document.querySelectorAll('#cadastroGalpoesList .galpao-animais')).reduce((sum, input) => sum + (Number(input.value) || 0), 0);
-  document.getElementById('cadastroGalpoesTotal').textContent = `Total: ${total.toLocaleString('pt-BR')} animais`;
+function updateGalpoesTotal(listId, totalId) {
+  const total = Array.from(document.querySelectorAll(`#${listId} .galpao-animais`)).reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+  document.getElementById(totalId).textContent = `Total: ${total.toLocaleString('pt-BR')} animais`;
   return total;
+}
+
+function updateCadastroGalpoesTotal() {
+  return updateGalpoesTotal('cadastroGalpoesList', 'cadastroGalpoesTotal');
 }
 
 function renderProjecaoOptions() {
@@ -344,38 +377,64 @@ function closePedidoModal() {
 function renderRelatorioPedidos() {
   const body = document.getElementById('relatorioTableBody');
   if (!body) return;
-  const { filterDate, filtered } = getRelatorioPedidos();
-  document.getElementById('relatorioTotal').textContent = filterDate ? `${filtered.length} pedido${filtered.length === 1 ? '' : 's'} em ${formatDateBr(filterDate)}` : 'Informe uma data para filtrar';
-  body.innerHTML = filtered.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para esta data.</td></tr>';
+  const hasDate = Boolean(document.getElementById('relatorioFiltroData').value);
+  document.querySelectorAll('.relatorio-extra-filter').forEach((cell) => { cell.hidden = !hasDate; });
+  document.getElementById('relatorioTotalFoot').hidden = !hasDate;
+  if (!hasDate) {
+    document.getElementById('relatorioTotal').textContent = 'Selecione uma data para ver o relatório';
+    body.innerHTML = '<tr><td colspan="6">Selecione uma data de entrega para ver o relatório.</td></tr>';
+    return;
+  }
+  const { filtered } = getRelatorioPedidos();
+  document.getElementById('relatorioTotal').textContent = `${filtered.length} pedido${filtered.length === 1 ? '' : 's'}`;
+  body.innerHTML = filtered.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para este filtro.</td></tr>';
+  const totalQuantidade = filtered.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
+  const totalIntegrados = new Set(filtered.map((pedido) => pedido.integrado_nome)).size;
+  document.getElementById('relatorioTotalQuantidade').textContent = `${totalQuantidade.toLocaleString('pt-BR')} kg`;
+  document.getElementById('relatorioTotalIntegrados').textContent = `${totalIntegrados} integrado${totalIntegrados === 1 ? '' : 's'}`;
 }
 
 function getRelatorioPedidos() {
-  const filterDate = document.getElementById('relatorioData').value;
-  return { filterDate, filtered: filterDate ? pedidos.filter((pedido) => pedido.data_entrega === filterDate) : [] };
+  const filterData = document.getElementById('relatorioFiltroData').value;
+  if (!filterData) return { filtered: [] };
+  const filterIntegrado = normalizeText(document.getElementById('relatorioFiltroIntegrado').value);
+  const filterGalpao = normalizeText(document.getElementById('relatorioFiltroGalpao').value);
+  const filterFase = normalizeText(document.getElementById('relatorioFiltroFase').value);
+  const filterQuantidade = document.getElementById('relatorioFiltroQuantidade').value.trim();
+  const filterObservacao = normalizeText(document.getElementById('relatorioFiltroObservacao').value);
+  const filtered = pedidos.filter((pedido) => {
+    if (pedido.data_entrega !== filterData) return false;
+    if (filterIntegrado && !normalizeText(pedido.integrado_nome).includes(filterIntegrado)) return false;
+    if (filterGalpao && !normalizeText(pedido.galpao || '').includes(filterGalpao)) return false;
+    if (filterFase && !normalizeText(pedido.fase || '').includes(filterFase)) return false;
+    if (filterQuantidade && !String(pedido.quantidade_kg).includes(filterQuantidade)) return false;
+    if (filterObservacao && !normalizeText(pedido.observacao || '').includes(filterObservacao)) return false;
+    return true;
+  });
+  return { filtered };
 }
 
 function validateRelatorioExport() {
-  const { filterDate, filtered } = getRelatorioPedidos();
-  if (!filterDate) { window.alert('Selecione uma data para exportar o relatório.'); return null; }
-  if (!filtered.length) { window.alert('Não há pedidos para a data selecionada.'); return null; }
-  return { filterDate, filtered };
+  const { filtered } = getRelatorioPedidos();
+  if (!filtered.length) { window.alert('Não há pedidos para os filtros selecionados.'); return null; }
+  return { filtered };
 }
 
 function exportRelatorioExcel() {
   const report = validateRelatorioExport();
   if (!report || !window.XLSX) return;
   const rows = report.filtered.map((pedido) => ({
+    'Data de entrega': formatDateBr(pedido.data_entrega),
     Integrado: pedido.integrado_nome,
     Galpão: pedido.galpao || '',
-    'Data de entrega': formatDateBr(pedido.data_entrega),
-    Fase: pedido.fase || '—',
+    Ração: pedido.fase || '—',
     'Quantidade (kg)': Number(pedido.quantidade_kg),
     Observação: pedido.observacao || '—'
   }));
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
-  XLSX.writeFile(workbook, `relatorio-pedidos-${report.filterDate}.xlsx`);
+  XLSX.writeFile(workbook, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 function exportRelatorioPdf() {
@@ -383,15 +442,15 @@ function exportRelatorioPdf() {
   if (!report || !window.jspdf) return;
   const documentPdf = new window.jspdf.jsPDF({ orientation: 'landscape' });
   documentPdf.setFontSize(16);
-  documentPdf.text(`Relatório de pedidos - ${formatDateBr(report.filterDate)}`, 14, 16);
+  documentPdf.text('Relatório de pedidos', 14, 16);
   documentPdf.autoTable({
     startY: 24,
-    head: [['Integrado', 'Galpão', 'Data de entrega', 'Fase', 'Quantidade (kg)', 'Observação']],
-    body: report.filtered.map((pedido) => [pedido.integrado_nome, pedido.galpao || '', formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—']),
+    head: [['Data de entrega', 'Integrado', 'Galpão', 'Ração', 'Quantidade (kg)', 'Observação']],
+    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.integrado_nome, pedido.galpao || '', pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—']),
     styles: { fontSize: 9 },
     headStyles: { fillColor: [35, 117, 99] }
   });
-  documentPdf.save(`relatorio-pedidos-${report.filterDate}.pdf`);
+  documentPdf.save(`relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 function openIntegratedModal(farm) {
@@ -451,7 +510,40 @@ document.getElementById('racaoTableBody').addEventListener('click', (event) => {
   const button = event.target.closest('.edit-racao');
   if (!button) return;
   const farm = farms.find((item) => item.name === button.dataset.name);
-  if (farm) loadFarmIntoCadastro(farm);
+  if (farm) openRacaoDetalheModal(farm);
+});
+
+document.getElementById('racaoDetalheAddGalpao').addEventListener('click', () => addGalpaoRow('', '', 'racaoDetalheGalpoesList', updateRacaoDetalhe));
+document.getElementById('closeRacaoDetalheModal').addEventListener('click', closeRacaoDetalheModal);
+document.getElementById('cancelRacaoDetalheModal').addEventListener('click', closeRacaoDetalheModal);
+document.getElementById('racaoDetalheModal').addEventListener('click', (event) => { if (event.target.id === 'racaoDetalheModal') closeRacaoDetalheModal(); });
+
+document.getElementById('salvarRacaoDetalhe').addEventListener('click', async () => {
+  const error = document.getElementById('racaoDetalheFormError');
+  const farm = farms.find((item) => item.name === racaoDetalheFarmName);
+  if (!farm) { error.textContent = 'Integrado não encontrado.'; return; }
+  const rows = Array.from(document.querySelectorAll('#racaoDetalheGalpoesList .galpao-row')).map((row) => ({
+    nome: row.querySelector('.galpao-nome').value.trim(),
+    animais: Number(row.querySelector('.galpao-animais').value)
+  }));
+  if (!rows.length) { error.textContent = 'Informe os animais alojados.'; return; }
+  if (rows.some((row) => !Number.isFinite(row.animais) || row.animais < 0)) { error.textContent = 'Informe um número válido de animais em cada galpão.'; return; }
+  const animals = rows.reduce((total, row) => total + row.animais, 0);
+  const namedRows = rows.filter((row) => row.nome && !isTpLabel(row.nome));
+  error.textContent = '';
+  const { error: deleteError } = await supabaseClient.from('galpoes_racao').delete().eq('integrado_nome', farm.name);
+  if (deleteError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${deleteError.message}`; return; }
+  const { data: inserted, error: insertError } = namedRows.length
+    ? await supabaseClient.from('galpoes_racao').insert(namedRows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais }))).select()
+    : { data: [], error: null };
+  if (insertError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${insertError.message}`; return; }
+  galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(inserted || []);
+  const { error: updateError } = await supabaseClient.from('integrados').update({ animais_alojados: animals }).eq('nome', farm.name);
+  if (updateError) { error.textContent = 'Não foi possível salvar o total do lote.'; return; }
+  farm.animals = animals;
+  renderRacaoTable();
+  renderProjecaoOptions();
+  closeRacaoDetalheModal();
 });
 
 document.getElementById('cadastroIntegrado').addEventListener('change', (event) => {
@@ -579,7 +671,9 @@ document.getElementById('pedidoEditForm').addEventListener('submit', async (even
   closePedidoModal();
 });
 
-document.getElementById('relatorioData').addEventListener('input', renderRelatorioPedidos);
+['relatorioFiltroData', 'relatorioFiltroIntegrado', 'relatorioFiltroGalpao', 'relatorioFiltroFase', 'relatorioFiltroQuantidade', 'relatorioFiltroObservacao'].forEach((id) => {
+  document.getElementById(id).addEventListener('input', renderRelatorioPedidos);
+});
 document.getElementById('exportRelatorioExcel').addEventListener('click', exportRelatorioExcel);
 document.getElementById('exportRelatorioPdf').addEventListener('click', exportRelatorioPdf);
 

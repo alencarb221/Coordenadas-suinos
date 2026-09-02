@@ -362,16 +362,34 @@
         </form>
       </div>
 
-      <div class="racao-panel" id="racaoPanelRelatorio" hidden>
-        <div class="control-panel racao-form-panel">
-          <div class="panel-heading">
-            <div><span class="section-kicker">Relatório</span><h2>Pedidos por data de entrega</h2></div>
+      <div class="modal-backdrop" id="racaoDetalheModal" hidden>
+        <div class="integrated-modal racao-detalhe-modal">
+          <div class="modal-header"><div><span class="section-kicker">Ração</span><h2 id="racaoDetalheTitle">Integrado</h2></div><button class="modal-close" id="closeRacaoDetalheModal" type="button" aria-label="Fechar">×</button></div>
+          <div class="metric-grid racao-detalhe-metric">
+            <article class="metric-card"><span class="metric-label">Ração do ciclo completo</span><strong id="racaoDetalheTotalCiclo">— <small>kg</small></strong><span class="metric-note">Estimado em 236 kg por animal alojado</span></article>
           </div>
-          <div class="form-stack">
-            <label class="field-label" for="relatorioData">Data da entrega</label>
-            <input id="relatorioData" type="date">
+          <div class="racao-detalhe-grid">
+            <div class="racao-detalhe-col">
+              <label class="field-label">Projeção por fase</label>
+              <div class="table-wrap integrated-table-wrap racao-detalhe-table-wrap">
+                <table><thead><tr><th>Fase</th><th>kg/animal</th><th>Projeção</th></tr></thead>
+                  <tbody id="racaoDetalheProjecaoBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="racao-detalhe-col">
+              <label class="field-label">Galpões e animais alojados</label>
+              <div id="racaoDetalheGalpoesList" class="racao-detalhe-galpoes-list"></div>
+              <button class="quiet-button" id="racaoDetalheAddGalpao" type="button">+ Adicionar galpão</button>
+              <p class="galpao-total-note" id="racaoDetalheGalpoesTotal">Total: 0 animais</p>
+            </div>
           </div>
+          <p class="form-error" id="racaoDetalheFormError" role="alert"></p>
+          <div class="modal-actions"><button class="quiet-button" id="cancelRacaoDetalheModal" type="button">Cancelar</button><button class="primary-button" id="salvarRacaoDetalhe" type="button">Salvar animais</button></div>
         </div>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelRelatorio" hidden>
         <div class="integrated-toolbar">
           <span class="integrated-total" id="relatorioTotal"></span>
           <div class="report-export-actions">
@@ -380,8 +398,22 @@
           </div>
         </div>
         <div class="table-wrap integrated-table-wrap">
-          <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th></tr></thead>
+          <table>
+            <thead>
+              <tr><th>Data de entrega</th><th>Integrado</th><th>Galpão</th><th>Ração</th><th>Quantidade (kg)</th><th>Observação</th></tr>
+              <tr class="filter-row">
+                <th><input id="relatorioFiltroData" type="date" aria-label="Filtrar por data de entrega"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroIntegrado" type="text" placeholder="Filtrar" aria-label="Filtrar por integrado"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroGalpao" type="text" placeholder="Filtrar" aria-label="Filtrar por galpão"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroFase" type="text" placeholder="Filtrar" aria-label="Filtrar por ração"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroQuantidade" type="text" placeholder="Filtrar" aria-label="Filtrar por quantidade"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroObservacao" type="text" placeholder="Filtrar" aria-label="Filtrar por observação"></th>
+              </tr>
+            </thead>
             <tbody id="relatorioTableBody"></tbody>
+            <tfoot id="relatorioTotalFoot" hidden>
+              <tr class="relatorio-total-row"><td colspan="4">Total</td><td id="relatorioTotalQuantidade">0 kg</td><td id="relatorioTotalIntegrados">0 integrados</td></tr>
+            </tfoot>
           </table>
         </div>
       </div>
