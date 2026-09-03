@@ -49,11 +49,13 @@ button {
 .brand-mark {
   width: 38px;
   height: 38px;
+  flex: 0 0 38px;
   display: grid;
   place-items: center;
   border-radius: 11px;
   background: var(--coral);
   color: #fff;
+  object-fit: cover;
   font:
     700 14px "Space Grotesk",
     sans-serif;
@@ -893,6 +895,36 @@ h2 {
   width: 100%;
   max-width: 520px;
   margin-top: 24px;
+}
+.phase-feeding-panel,
+.phase-simulation-panel {
+  max-width: 760px;
+}
+.phase-feeding-panel .table-wrap,
+.phase-simulation-results-wrap {
+  margin-top: 0;
+}
+.phase-feeding-kg {
+  width: 120px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfdfb;
+  color: var(--ink);
+  font-size: 11px;
+}
+.phase-simulation-panel {
+  margin-top: 24px;
+}
+.phase-simulation-panel .quiet-button {
+  margin-top: 14px;
+}
+.phase-simulation-results-wrap {
+  margin-top: 24px;
+}
+.phase-simulation-results-wrap tfoot {
+  font-weight: 700;
 }
 .galpao-row {
   display: grid;

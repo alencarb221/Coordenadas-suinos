@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SuinoTech">
+  <path fill="#e47b58" d="M32 3C18.2 3 7 14.2 7 28c0 17.5 25 33 25 33s25-15.5 25-33C57 14.2 45.8 3 32 3Z"/>
+  <path fill="#fff" d="M19 27.5c0-7.2 5.8-12.5 13-12.5s13 5.3 13 12.5c0 6.9-5.4 12.5-13 12.5s-13-5.6-13-12.5Zm-3-1.5a4 4 0 1 0 0 8h4v-8h-4Zm28 0v8h4a4 4 0 1 0 0-8h-4Z"/>
+  <path fill="#0e7370" d="M27 27.5a5 3.5 0 1 0 10 0 5 3.5 0 1 0-10 0Zm3-1.2a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm6 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
+  <path fill="none" stroke="#0e7370" stroke-linecap="round" stroke-width="2" d="M25 34c4 2.5 10 2.5 14 0"/>
+  <path fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2.5" d="M21 48h8l4-4h9"/>
+  <circle cx="21" cy="48" r="2.5" fill="#fff"/>
+  <circle cx="42" cy="44" r="2.5" fill="#fff"/>
+</svg>

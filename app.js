@@ -27,7 +27,7 @@ let farmsLoaded = false;
 let routeAnalysisInProgress = false;
 const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 // kg por animal em cada fase, conforme planilha "Phase feeding-Suinos"
-const FEED_PHASES = [
+const DEFAULT_FEED_PHASES = [
   { label: 'RS Alojamento', sigla: 'RSCA', kgPorAnimal: 15 },
   { label: 'RS Crescimento 1', sigla: 'RSC-1', kgPorAnimal: 45 },
   { label: 'RS Crescimento 2', sigla: 'RSC-2', kgPorAnimal: 27 },
@@ -35,7 +35,9 @@ const FEED_PHASES = [
   { label: 'RS Terminação 2', sigla: 'RST-2', kgPorAnimal: 35 },
   { label: 'RS Terminação 3', sigla: 'RST-3', kgPorAnimal: 65 },
 ];
-const FEED_CYCLE_KG_POR_ANIMAL = FEED_PHASES.reduce((total, phase) => total + phase.kgPorAnimal, 0);
+const FEED_PHASES_STORAGE_KEY = 'coordenadas-suinos-phase-feeding';
+let FEED_PHASES = loadFeedPhases();
+let FEED_CYCLE_KG_POR_ANIMAL = getFeedCycleKgPerAnimal();
 let baseFarms = [];
 let farmRefreshQueued = false;
 let pedidos = [];
@@ -48,6 +50,60 @@ const manualPointColors = {
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+}
+
+function loadFeedPhases() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FEED_PHASES_STORAGE_KEY));
+    if (Array.isArray(saved) && saved.length === DEFAULT_FEED_PHASES.length && saved.every((phase, index) => phase.sigla === DEFAULT_FEED_PHASES[index].sigla && Number.isFinite(Number(phase.kgPorAnimal)) && Number(phase.kgPorAnimal) >= 0)) {
+      return DEFAULT_FEED_PHASES.map((phase, index) => ({ ...phase, kgPorAnimal: Number(saved[index].kgPorAnimal) }));
+    }
+  } catch (error) {
+    console.warn('Não foi possível carregar a configuração de Phase Feeding.', error);
+  }
+  return DEFAULT_FEED_PHASES.map((phase) => ({ ...phase }));
+}
+
+function getFeedCycleKgPerAnimal() {
+  return FEED_PHASES.reduce((total, phase) => total + phase.kgPorAnimal, 0);
+}
+
+function renderPhaseFeeding() {
+  const body = document.getElementById('phaseFeedingTableBody');
+  if (!body) return;
+  body.innerHTML = FEED_PHASES.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${escapeHtml(phase.sigla)}</td><td><input class="phase-feeding-kg" data-sigla="${escapeHtml(phase.sigla)}" type="number" min="0" step="0.01" value="${phase.kgPorAnimal}"></td></tr>`).join('');
+}
+
+function renderPhaseSimulation() {
+  const animalsInput = document.getElementById('phaseSimulationAnimals').value.trim();
+  const animals = Number(animalsInput);
+  const body = document.getElementById('phaseSimulationBody');
+  const total = document.getElementById('phaseSimulationTotal');
+  if (!animalsInput || !Number.isFinite(animals) || animals < 0) {
+    body.innerHTML = '<tr><td colspan="2">Informe uma quantidade válida de animais.</td></tr>';
+    total.textContent = '—';
+    return;
+  }
+  body.innerHTML = FEED_PHASES.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${(animals * phase.kgPorAnimal).toLocaleString('pt-BR')} kg</td></tr>`).join('');
+  total.textContent = `${(animals * FEED_CYCLE_KG_POR_ANIMAL).toLocaleString('pt-BR')} kg`;
+}
+
+function saveFeedPhases() {
+  const error = document.getElementById('phaseFeedingError');
+  const inputs = Array.from(document.querySelectorAll('.phase-feeding-kg'));
+  const values = inputs.map((input) => ({ sigla: input.dataset.sigla, value: Number(input.value) }));
+  if (values.some((item) => !Number.isFinite(item.value) || item.value < 0)) {
+    error.textContent = 'Informe valores válidos iguais ou maiores que zero.';
+    return;
+  }
+  FEED_PHASES = FEED_PHASES.map((phase) => ({ ...phase, kgPorAnimal: values.find((item) => item.sigla === phase.sigla).value }));
+  FEED_CYCLE_KG_POR_ANIMAL = getFeedCycleKgPerAnimal();
+  localStorage.setItem(FEED_PHASES_STORAGE_KEY, JSON.stringify(FEED_PHASES.map(({ sigla, kgPorAnimal }) => ({ sigla, kgPorAnimal }))));
+  error.textContent = 'Valores salvos com sucesso.';
+  renderFeedProjection(Number(document.querySelector('#cadastroGalpoesList .galpao-animais')?.value) || 0);
+  renderRacaoTable();
+  renderProjecao();
+  renderPhaseSimulation();
 }
 
 function refreshFarmSources() {
@@ -268,13 +324,26 @@ function renderProjecaoOptions() {
   if (!select) return;
   const previousValue = select.value;
   const cadastrados = farms.filter((farm) => (farm.animals || 0) > 0).sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
-  select.innerHTML = '<option value="">Selecione um integrado</option>' + cadastrados.map((farm) => `<option value="${escapeHtml(farm.name)}">${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}</option>`).join('');
-  if (cadastrados.some((farm) => farm.name === previousValue)) select.value = previousValue;
+  const options = document.getElementById('projecaoFarmOptions');
+  const query = normalizeText(previousValue);
+  if (!query) {
+    options.innerHTML = '';
+    return;
+  }
+  options.innerHTML = cadastrados
+    .filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)))
+    .map((farm) => `<option value="${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}"></option>`).join('');
+}
+
+function getProjecaoFarmName() {
+  const input = document.getElementById('projecaoSelect');
+  const selectedFarm = farms.find((farm) => `${farm.name} · ${farm.city}` === input.value.trim());
+  return selectedFarm?.name || '';
 }
 
 function renderProjecaoGalpaoOptions() {
   const select = document.getElementById('projecaoGalpaoSelect');
-  const farmName = document.getElementById('projecaoSelect').value;
+  const farmName = getProjecaoFarmName();
   const farmGalpoes = getGalpoesByFarm(farmName);
   select.innerHTML = '<option value="">Todos os galpões (total)</option>' + farmGalpoes.map((galpao) => `<option value="${escapeHtml(galpao.nome_galpao)}">${escapeHtml(galpao.nome_galpao)}</option>`).join('');
 }
@@ -284,7 +353,7 @@ function renderProjecao() {
   const empty = document.getElementById('projecaoEmpty');
   const rscaInfo = document.getElementById('projecaoRscaInfo');
   if (!chart || !empty) return;
-  const name = document.getElementById('projecaoSelect').value;
+  const name = getProjecaoFarmName();
   const galpaoFiltro = document.getElementById('projecaoGalpaoSelect').value;
   const farm = farms.find((item) => item.name === name);
   if (!farm) {
@@ -501,10 +570,14 @@ document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('
   if (tab.dataset.racaoTab === 'racaoPanelProjecao') { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); }
   if (tab.dataset.racaoTab === 'racaoPanelProgramacao') renderPedidosTable();
   if (tab.dataset.racaoTab === 'racaoPanelRelatorio') renderRelatorioPedidos();
+  if (tab.dataset.racaoTab === 'racaoPanelPhaseFeeding') { renderPhaseFeeding(); renderPhaseSimulation(); }
 }));
 
+document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); });
 document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); renderProjecao(); });
 document.getElementById('projecaoGalpaoSelect').addEventListener('change', renderProjecao);
+document.getElementById('savePhaseFeeding').addEventListener('click', saveFeedPhases);
+document.getElementById('calculatePhaseSimulation').addEventListener('click', renderPhaseSimulation);
 
 document.getElementById('racaoTableBody').addEventListener('click', (event) => {
   const button = event.target.closest('.edit-racao');

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Programa de distribuição de ração suína</title>
+  <title>SuinoTech</title>
+  <link rel="icon" type="image/svg+xml" href="suinotech-icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -14,10 +15,10 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">RS</div>
+        <img class="brand-mark" src="suinotech-icon.svg" alt="">
         <div>
-          <strong>Programa de distribuição de ração suína</strong>
-          <span>Distribuição de ração</span>
+          <strong>SuinoTech</strong>
+          <span>Rotas e gestão de ração</span>
         </div>
       </div>
 
@@ -207,6 +208,7 @@
         <button class="subnav-tab" data-racao-tab="racaoPanelProjecao" type="button" role="tab">Projeção</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelProgramacao" type="button" role="tab">Programação</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelRelatorio" type="button" role="tab">Relatório</button>
+        <button class="subnav-tab" data-racao-tab="racaoPanelPhaseFeeding" type="button" role="tab">Phase Feeding</button>
       </div>
 
       <div class="racao-panel" id="racaoPanelCadastro">
@@ -254,9 +256,10 @@
           </div>
           <div class="form-stack">
             <label class="field-label" for="projecaoSelect">Integrado cadastrado</label>
-            <div class="select-wrap">
-              <select id="projecaoSelect"><option value="">Selecione um integrado</option></select>
+            <div class="select-wrap autocomplete-wrap">
+              <input id="projecaoSelect" list="projecaoFarmOptions" autocomplete="off" placeholder="Digite o nome do integrado">
             </div>
+            <datalist id="projecaoFarmOptions"></datalist>
             <label class="field-label" for="projecaoGalpaoSelect">Galpão</label>
             <div class="select-wrap">
               <select id="projecaoGalpaoSelect"><option value="">Todos os galpões (total)</option></select>
@@ -417,6 +420,39 @@
           </table>
         </div>
       </div>
+
+      <div class="racao-panel" id="racaoPanelPhaseFeeding" hidden>
+        <div class="control-panel racao-form-panel phase-feeding-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Configuração</span><h2>Tipos de ração por fase</h2></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fase</th><th>Sigla</th><th>kg por animal</th></tr></thead>
+              <tbody id="phaseFeedingTableBody"></tbody>
+            </table>
+          </div>
+          <p class="form-error" id="phaseFeedingError" role="alert"></p>
+          <button class="primary-button" id="savePhaseFeeding" type="button">Salvar valores</button>
+        </div>
+        <div class="control-panel racao-form-panel phase-simulation-panel">
+          <div class="panel-heading">
+            <div><span class="section-kicker">Simulação</span><h2>Calcular ração por quantidade de animais</h2></div>
+          </div>
+          <div class="form-stack">
+            <label class="field-label" for="phaseSimulationAnimals">Quantidade de animais</label>
+            <input id="phaseSimulationAnimals" type="number" min="0" step="1" placeholder="Ex.: 1000">
+            <button class="quiet-button" id="calculatePhaseSimulation" type="button">Calcular simulação</button>
+          </div>
+          <div class="table-wrap phase-simulation-results-wrap">
+            <table>
+              <thead><tr><th>Fase</th><th>Quantidade de ração</th></tr></thead>
+              <tbody id="phaseSimulationBody"><tr><td colspan="2">Informe a quantidade de animais.</td></tr></tbody>
+              <tfoot><tr><td>Total do ciclo</td><td id="phaseSimulationTotal">—</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -426,6 +462,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="app.js?v=20260830-26"></script>
+  <script src="app.js?v=20260903-27"></script>
 </body>
 </html>
