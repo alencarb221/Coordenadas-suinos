@@ -42,6 +42,7 @@ let baseFarms = [];
 let farmRefreshQueued = false;
 let pedidos = [];
 let galpoes = [];
+let ocupacaoViagens = [];
 let manualPointSelection = null;
 const manualPointColors = {
   1: '#2475b9',
@@ -161,6 +162,176 @@ function isTpLabel(value) {
 function formatDateBr(isoDate) {
   const [year, month, day] = String(isoDate || '').split('-');
   return year && month && day ? `${day}/${month}/${year}` : '—';
+}
+
+function parseBrazilianNumber(value) {
+  const text = String(value ?? '').replace(/\s/g, '').replace('%', '').trim();
+  if (!text) return NaN;
+  const lastComma = text.lastIndexOf(',');
+  const lastDot = text.lastIndexOf('.');
+  if (lastComma >= 0 && lastDot >= 0) {
+    return lastComma > lastDot ? Number(text.replace(/\./g, '').replace(',', '.')) : Number(text.replace(/,/g, ''));
+  }
+  if (lastComma >= 0) {
+    const decimals = text.length - lastComma - 1;
+    return decimals === 3 ? Number(text.replace(',', '')) : Number(text.replace(',', '.'));
+  }
+  if (lastDot >= 0) {
+    const decimals = text.length - lastDot - 1;
+    return decimals === 3 ? Number(text.replace('.', '')) : Number(text);
+  }
+  return Number(text);
+}
+
+function parseOccupancyPercent(value) {
+  const text = String(value || '').trim();
+  const hasPercent = text.includes('%');
+  const normalized = text.replace('%', '').trim();
+  const number = normalized.includes(',')
+    ? Number(normalized.replace(/\./g, '').replace(',', '.'))
+    : Number(normalized);
+  return hasPercent ? number : (number <= 2 ? number * 100 : number);
+}
+
+function formatOccupancyText(value) {
+  const text = String(value || '').trim();
+  if (text.includes('%')) return text;
+  const number = Number(text);
+  if (!Number.isFinite(number)) return '';
+  return `${(number <= 2 ? number * 100 : number).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+}
+
+function parseOcupacaoCsv(csv) {
+  const lines = csv.split(/\r?\n/).filter((line) => line.trim());
+  const headers = parseCsvLine(lines.shift()).map((header) => header.trim());
+  return lines.map((line) => {
+    const values = parseCsvLine(line);
+    const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
+    return {
+      filial: row.Filial,
+      viagem: row.Viagem,
+      ocupacaoTexto: formatOccupancyText(row['% Aprov Ocup Ração']),
+      ocupacao: parseOccupancyPercent(row['% Aprov Ocup Ração']),
+      peso: parseBrazilianNumber(row['Peso Bruto Viagem']),
+      capacidade: parseBrazilianNumber(row['Lotação Máxima'])
+    };
+  }).filter((viagem) => Number.isFinite(viagem.ocupacao) && Number.isFinite(viagem.peso) && Number.isFinite(viagem.capacidade));
+}
+
+function parseOcupacaoRows(rows) {
+  if (!rows.length) return [];
+  const headerRowIndex = rows.findIndex((row) => {
+    const headers = row.map((header) => normalizeText(header));
+    return headers.some((header) => header === 'filial') && headers.some((header) => header === 'viagem');
+  });
+  if (headerRowIndex < 0) return [];
+  const headers = rows[headerRowIndex].map((header) => normalizeText(header));
+  const findColumn = (...names) => headers.findIndex((header) => names.some((name) => header === normalizeText(name) || header.includes(normalizeText(name))));
+  const filialIndex = findColumn('Filial');
+  const viagemIndex = findColumn('Viagem');
+  const ocupacaoIndex = findColumn('% Aprov Ocup Ração', 'Aprov Ocup Ração', 'Ocupação Ração');
+  const pesoIndex = findColumn('Peso Bruto Viagem', 'Peso Bruto');
+  const capacidadeIndex = findColumn('Lotação Máxima', 'Lotacao Maxima', 'Capacidade');
+  if ([filialIndex, viagemIndex, ocupacaoIndex, pesoIndex, capacidadeIndex].some((index) => index < 0)) return [];
+  return rows.slice(headerRowIndex + 1).map((row) => {
+    const ocupacaoOriginal = String(row[ocupacaoIndex] ?? '').trim();
+    return {
+      filial: String(row[filialIndex] ?? '').trim(),
+      viagem: String(row[viagemIndex] ?? '').trim(),
+      ocupacaoTexto: formatOccupancyText(ocupacaoOriginal),
+      ocupacao: parseOccupancyPercent(ocupacaoOriginal),
+      peso: parseBrazilianNumber(row[pesoIndex]),
+      capacidade: parseBrazilianNumber(row[capacidadeIndex])
+    };
+  }).filter((viagem) => viagem.filial && viagem.viagem && Number.isFinite(viagem.ocupacao) && Number.isFinite(viagem.peso) && Number.isFinite(viagem.capacidade));
+}
+
+function occupancyRating(value) {
+  if (value >= 90) return { label: 'Boa', className: 'occupancy-good' };
+  if (value >= 75) return { label: 'Média', className: 'occupancy-warning' };
+  if (value >= 50) return { label: 'Baixa', className: 'occupancy-low' };
+  return { label: 'Péssima', className: 'occupancy-poor' };
+}
+
+function getFilteredOcupacao() {
+  const pesoMin = Number(document.getElementById('ocupacaoFiltroPesoMin')?.value);
+  const pesoMax = Number(document.getElementById('ocupacaoFiltroPesoMax')?.value);
+  const faixa = document.getElementById('ocupacaoFiltroFaixa')?.value || '';
+  const faixaClasses = { boa: 'occupancy-good', media: 'occupancy-warning', baixa: 'occupancy-low', pessima: 'occupancy-poor' };
+  return ocupacaoViagens.filter((viagem) => {
+    if (Number.isFinite(pesoMin) && document.getElementById('ocupacaoFiltroPesoMin').value && viagem.peso < pesoMin) return false;
+    if (Number.isFinite(pesoMax) && document.getElementById('ocupacaoFiltroPesoMax').value && viagem.peso > pesoMax) return false;
+    if (faixa && occupancyRating(viagem.ocupacao).className !== faixaClasses[faixa]) return false;
+    return true;
+  });
+}
+
+function renderOcupacaoExcel() {
+  const body = document.getElementById('ocupacaoExcelTableBody');
+  if (!body) return;
+  document.getElementById('ocupacaoDadosTotal').textContent = `${ocupacaoViagens.length.toLocaleString('pt-BR')} viagens`;
+  body.innerHTML = ocupacaoViagens.map((viagem) => `<tr><td>${escapeHtml(viagem.filial)}</td><td>${escapeHtml(viagem.viagem)}</td><td>${escapeHtml(viagem.ocupacaoTexto)}</td><td>${viagem.peso.toLocaleString('pt-BR')} kg</td><td>${viagem.capacidade.toLocaleString('pt-BR')} kg</td></tr>`).join('') || '<tr><td colspan="5">Nenhuma viagem encontrada.</td></tr>';
+}
+
+function carregarOcupacaoColada() {
+  const input = document.getElementById('ocupacaoDadosColados');
+  const text = input.value.trim();
+  if (!text) {
+    document.getElementById('ocupacaoArquivoStatus').textContent = 'Cole os dados do Excel antes de carregar.';
+    return;
+  }
+  const separator = text.includes('\t') ? '\t' : ',';
+  const rows = text.split(/\r?\n/).filter((line) => line.trim()).map((line) => separator === '\t' ? line.split('\t').map((value) => value.trim()) : parseCsvLine(line));
+  const viagens = parseOcupacaoRows(rows);
+  if (!viagens.length) {
+    document.getElementById('ocupacaoArquivoStatus').textContent = 'Não encontrei as cinco colunas esperadas nos dados colados.';
+    return;
+  }
+  ocupacaoViagens = viagens;
+  document.getElementById('ocupacaoArquivoStatus').textContent = `${viagens.length.toLocaleString('pt-BR')} viagens carregadas. A análise usa somente os dados colados.`;
+  renderOcupacao();
+}
+
+function limparOcupacao() {
+  ocupacaoViagens = [];
+  document.getElementById('ocupacaoDadosColados').value = '';
+  document.getElementById('ocupacaoArquivoStatus').textContent = 'Cole os dados do Excel para começar.';
+  renderOcupacao();
+}
+
+function renderOcupacaoAnalise() {
+  const viagens = getFilteredOcupacao();
+  const totalPeso = viagens.reduce((sum, viagem) => sum + viagem.peso, 0);
+  const totalCapacidade = viagens.reduce((sum, viagem) => sum + viagem.capacidade, 0);
+  const media = totalCapacidade ? (totalPeso / totalCapacidade) * 100 : 0;
+  document.getElementById('ocupacaoViagens').textContent = viagens.length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoBoas').textContent = viagens.filter((viagem) => viagem.ocupacao >= 90).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoMedias').textContent = viagens.filter((viagem) => viagem.ocupacao >= 75 && viagem.ocupacao < 90).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoBaixas').textContent = viagens.filter((viagem) => viagem.ocupacao >= 50 && viagem.ocupacao < 75).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoPessimas').textContent = viagens.filter((viagem) => viagem.ocupacao < 50).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoPesoResumo').textContent = totalPeso.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+  document.getElementById('ocupacaoCapacidadeResumo').textContent = totalCapacidade.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+  document.getElementById('ocupacaoCapacidadeBar').style.width = `${Math.min(100, media)}%`;
+  document.getElementById('ocupacaoResumoTexto').textContent = `${media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da capacidade total foi aproveitada no filtro atual.`;
+
+  const faixas = [
+    { label: 'Boa · 90% ou mais', count: viagens.filter((viagem) => viagem.ocupacao >= 90).length, color: 'good' },
+    { label: 'Média · 75% a 89%', count: viagens.filter((viagem) => viagem.ocupacao >= 75 && viagem.ocupacao < 90).length, color: 'warning' },
+    { label: 'Baixa · 50% a 74%', count: viagens.filter((viagem) => viagem.ocupacao >= 50 && viagem.ocupacao < 75).length, color: 'low' },
+    { label: 'Péssima · abaixo de 50%', count: viagens.filter((viagem) => viagem.ocupacao < 50).length, color: 'poor' }
+  ];
+  const maxFaixa = Math.max(...faixas.map((faixa) => faixa.count), 1);
+  document.getElementById('ocupacaoFaixas').innerHTML = faixas.map((faixa) => `<div class="occupancy-bar-item"><div><span>${faixa.label}</span><strong>${faixa.count}</strong></div><div class="occupancy-bar-track"><i class="occupancy-bar-fill ${faixa.color}" style="width:${(faixa.count / maxFaixa) * 100}%"></i></div></div>`).join('');
+  document.getElementById('ocupacaoTabelaTotal').textContent = `${viagens.length} viagem${viagens.length === 1 ? '' : 's'}`;
+  document.getElementById('ocupacaoTableBody').innerHTML = viagens.map((viagem) => {
+    const rating = occupancyRating(viagem.ocupacao);
+    return `<tr><td>${escapeHtml(viagem.filial)}</td><td>${escapeHtml(viagem.viagem)}</td><td><strong>${viagem.ocupacao.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</strong></td><td>${viagem.peso.toLocaleString('pt-BR')} kg</td><td>${viagem.capacidade.toLocaleString('pt-BR')} kg</td><td><span class="occupancy-status ${rating.className}">${rating.label}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6">Nenhuma viagem encontrada.</td></tr>';
+}
+
+function renderOcupacao() {
+  renderOcupacaoExcel();
+  renderOcupacaoAnalise();
 }
 
 function parseCsvLine(line) {
@@ -542,15 +713,18 @@ function showView(view) {
   const routeView = document.getElementById('routeView');
   const integratedView = document.getElementById('integratedView');
   const racaoView = document.getElementById('racaoView');
+  const ocupacaoView = document.getElementById('ocupacaoView');
   const isRouteView = view === 'rota';
 
   if (routeView) routeView.hidden = !isRouteView;
   if (integratedView) integratedView.hidden = view !== 'integratedView';
   if (racaoView) racaoView.hidden = view !== 'racaoView';
+  if (ocupacaoView) ocupacaoView.hidden = view !== 'ocupacaoView';
 
   document.querySelectorAll('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   if (view === 'integratedView') renderIntegratedTable();
   else if (view === 'racaoView') renderRacaoTable();
+  else if (view === 'ocupacaoView') renderOcupacao();
   else setTimeout(() => map.invalidateSize(), 0);
 }
 
@@ -560,6 +734,14 @@ document.querySelectorAll('.nav-item[data-view]').forEach((item) => item.addEven
 }));
 document.getElementById('integratedSearch').addEventListener('input', renderIntegratedTable);
 document.getElementById('racaoSearch').addEventListener('input', renderRacaoTable);
+['ocupacaoFiltroPesoMin', 'ocupacaoFiltroPesoMax'].forEach((id) => document.getElementById(id).addEventListener('input', renderOcupacaoAnalise));
+document.getElementById('ocupacaoFiltroFaixa').addEventListener('change', renderOcupacaoAnalise);
+document.getElementById('carregarOcupacaoColada').addEventListener('click', carregarOcupacaoColada);
+document.getElementById('limparOcupacao').addEventListener('click', limparOcupacao);
+document.querySelectorAll('.occupancy-tab').forEach((tab) => tab.addEventListener('click', () => {
+  document.querySelectorAll('.occupancy-tab').forEach((item) => item.classList.toggle('active', item === tab));
+  document.querySelectorAll('.occupancy-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.occupancyTab; });
+}));
 document.addEventListener('input', (event) => {
   if (event.target.matches('input[list="farmOptions"]')) renderFarmOptions(event.target.value);
 });

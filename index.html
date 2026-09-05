@@ -28,6 +28,7 @@
         <a class="nav-item" data-view="integratedView" href="#integrados"><span class="nav-icon">⌖</span>Integrados <span class="nav-count">146</span></a>
         <p class="nav-label secondary-label">Gestão</p>
         <a class="nav-item" data-view="racaoView" href="#racao"><span class="nav-icon">◌</span>Programação de ração</a>
+        <a class="nav-item" data-view="ocupacaoView" href="#ocupacao"><span class="nav-icon">▥</span>Ocupação</a>
       </nav>
 
       <div class="sidebar-footer">
@@ -454,6 +455,63 @@
         </div>
       </div>
     </section>
+
+    <section class="integrated-view" id="ocupacaoView" hidden>
+      <header class="topbar integrated-topbar">
+        <div>
+          <p class="eyebrow">Gestão logística</p>
+          <h1>Ocupação de caminhões</h1>
+          <p class="subtitle">Análise das viagens e do aproveitamento da capacidade de carga.</p>
+        </div>
+      </header>
+
+      <div class="occupancy-tabs" role="tablist">
+        <button class="occupancy-tab active" data-occupancy-tab="ocupacaoDadosPanel" type="button" role="tab">Viagens</button>
+        <button class="occupancy-tab" data-occupancy-tab="ocupacaoAnalisePanel" type="button" role="tab">Gráficos e comparativos</button>
+      </div>
+
+      <div class="occupancy-panel" id="ocupacaoDadosPanel">
+        <div class="occupancy-toolbar">
+          <div><span class="section-kicker">Entrada de dados</span><strong>Copie as linhas do Excel e cole aqui</strong><span class="occupancy-file-status" id="ocupacaoArquivoStatus">Use as colunas: Filial, Viagem, % Aprov Ocup Ração, Peso Bruto Viagem e Lotação Máxima.</span></div>
+          <div class="occupancy-import"><button class="primary-button" id="carregarOcupacaoColada" type="button">Carregar dados colados</button><button class="quiet-button" id="limparOcupacao" type="button">Limpar</button><span class="integrated-total" id="ocupacaoDadosTotal">0 viagens</span></div>
+        </div>
+        <textarea id="ocupacaoDadosColados" class="occupancy-paste-area" rows="5" placeholder="Cole aqui o cabeçalho e as linhas copiadas do Excel"></textarea>
+        <div class="table-wrap integrated-table-wrap occupancy-excel-table">
+          <table><thead><tr><th>Filial</th><th>Viagem</th><th>% Aprov Ocup Ração</th><th>Peso Bruto Viagem</th><th>Lotação Máxima</th></tr></thead><tbody id="ocupacaoExcelTableBody"></tbody></table>
+        </div>
+      </div>
+
+      <div class="occupancy-panel" id="ocupacaoAnalisePanel" hidden>
+        <div class="occupancy-filter-row">
+          <label>Peso mínimo (kg)<input id="ocupacaoFiltroPesoMin" type="number" min="0" placeholder="Ex.: 15000"></label>
+          <label>Peso máximo (kg)<input id="ocupacaoFiltroPesoMax" type="number" min="0" placeholder="Ex.: 19000"></label>
+          <label>Faixa<select id="ocupacaoFiltroFaixa"><option value="">Todas as faixas</option><option value="boa">Boa</option><option value="media">Média</option><option value="baixa">Baixa</option><option value="pessima">Péssima</option></select></label>
+        </div>
+        <div class="metric-grid occupancy-metrics">
+          <article class="metric-card"><span class="metric-label">Total de viagens</span><strong id="ocupacaoViagens">—</strong><span class="metric-note">Registros no filtro atual</span></article>
+          <article class="metric-card occupancy-card-good"><span class="metric-label">Boa ocupação</span><strong id="ocupacaoBoas">—</strong><span class="metric-note">90% ou mais</span></article>
+          <article class="metric-card occupancy-card-average"><span class="metric-label">Média ocupação</span><strong id="ocupacaoMedias">—</strong><span class="metric-note">75% a 89,99%</span></article>
+          <article class="metric-card occupancy-card-low"><span class="metric-label">Baixa ocupação</span><strong id="ocupacaoBaixas">—</strong><span class="metric-note">50% a 74,99%</span></article>
+          <article class="metric-card occupancy-card-poor"><span class="metric-label">Péssima ocupação</span><strong id="ocupacaoPessimas">—</strong><span class="metric-note">Abaixo de 50%</span></article>
+        </div>
+        <div class="occupancy-dashboard-grid">
+          <section class="control-panel occupancy-chart-panel">
+            <div class="panel-heading"><div><span class="section-kicker">Desempenho</span><h2>Distribuição das viagens</h2></div></div>
+            <div id="ocupacaoFaixas" class="occupancy-bars"></div>
+          </section>
+          <section class="control-panel occupancy-chart-panel">
+            <div class="panel-heading"><div><span class="section-kicker">Comparativo</span><h2>Peso x capacidade</h2></div></div>
+            <div class="occupancy-capacity-summary"><strong id="ocupacaoPesoResumo">—</strong><span>kg carregados</span><i></i><strong id="ocupacaoCapacidadeResumo">—</strong><span>kg de capacidade</span></div>
+            <div class="capacity-track"><span id="ocupacaoCapacidadeBar"></span></div>
+            <p class="chart-info-note" id="ocupacaoResumoTexto">Carregando dados das viagens.</p>
+          </section>
+        </div>
+        <div class="integrated-toolbar occupancy-table-heading"><div><span class="section-kicker">Detalhamento filtrado</span><h2>Viagens e pesos</h2></div><span class="integrated-total" id="ocupacaoTabelaTotal"></span></div>
+        <div class="table-wrap integrated-table-wrap">
+          <table><thead><tr><th>Filial</th><th>Viagem</th><th>Ocupação</th><th>Peso bruto</th><th>Lotação máxima</th><th>Avaliação</th></tr></thead><tbody id="ocupacaoTableBody"></tbody></table>
+        </div>
+      </div>
+    </section>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="dados-integrados.js"></script>
@@ -462,6 +520,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="app.js?v=20260903-27"></script>
+  <script src="app.js?v=20260904-35"></script>
 </body>
 </html>
