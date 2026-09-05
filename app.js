@@ -246,7 +246,30 @@ function parseOcupacaoRows(rows) {
   }).filter((viagem) => viagem.filial && viagem.viagem && Number.isFinite(viagem.ocupacao) && Number.isFinite(viagem.peso) && Number.isFinite(viagem.capacidade));
 }
 
+function combineOcupacaoViagens(viagens) {
+  const combinedByKey = new Map();
+  let duplicateCount = 0;
+  viagens.forEach((viagem) => {
+    const key = `${viagem.filial}||${viagem.viagem}`;
+    const existing = combinedByKey.get(key);
+    if (existing) {
+      // mesma viagem em mais de uma linha = carga combinada: soma o peso, mantém a maior capacidade informada
+      existing.peso += viagem.peso;
+      existing.capacidade = Math.max(existing.capacidade, viagem.capacidade);
+      duplicateCount += 1;
+    } else {
+      combinedByKey.set(key, { ...viagem });
+    }
+  });
+  const combined = Array.from(combinedByKey.values()).map((viagem) => {
+    const ocupacao = viagem.capacidade ? (viagem.peso / viagem.capacidade) * 100 : 0;
+    return { ...viagem, ocupacao, ocupacaoTexto: `${ocupacao.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+  });
+  return { combined, duplicateCount };
+}
+
 function occupancyRating(value) {
+  if (value >= 95) return { label: 'Excelente', className: 'occupancy-excellent' };
   if (value >= 90) return { label: 'Boa', className: 'occupancy-good' };
   if (value >= 75) return { label: 'Média', className: 'occupancy-warning' };
   if (value >= 50) return { label: 'Baixa', className: 'occupancy-low' };
@@ -257,7 +280,7 @@ function getFilteredOcupacao() {
   const pesoMin = Number(document.getElementById('ocupacaoFiltroPesoMin')?.value);
   const pesoMax = Number(document.getElementById('ocupacaoFiltroPesoMax')?.value);
   const faixa = document.getElementById('ocupacaoFiltroFaixa')?.value || '';
-  const faixaClasses = { boa: 'occupancy-good', media: 'occupancy-warning', baixa: 'occupancy-low', pessima: 'occupancy-poor' };
+  const faixaClasses = { excelente: 'occupancy-excellent', boa: 'occupancy-good', media: 'occupancy-warning', baixa: 'occupancy-low', pessima: 'occupancy-poor' };
   return ocupacaoViagens.filter((viagem) => {
     if (Number.isFinite(pesoMin) && document.getElementById('ocupacaoFiltroPesoMin').value && viagem.peso < pesoMin) return false;
     if (Number.isFinite(pesoMax) && document.getElementById('ocupacaoFiltroPesoMax').value && viagem.peso > pesoMax) return false;
@@ -282,13 +305,16 @@ function carregarOcupacaoColada() {
   }
   const separator = text.includes('\t') ? '\t' : ',';
   const rows = text.split(/\r?\n/).filter((line) => line.trim()).map((line) => separator === '\t' ? line.split('\t').map((value) => value.trim()) : parseCsvLine(line));
-  const viagens = parseOcupacaoRows(rows);
-  if (!viagens.length) {
+  const parsedViagens = parseOcupacaoRows(rows);
+  if (!parsedViagens.length) {
     document.getElementById('ocupacaoArquivoStatus').textContent = 'Não encontrei as cinco colunas esperadas nos dados colados.';
     return;
   }
+  const { combined: viagens, duplicateCount } = combineOcupacaoViagens(parsedViagens);
   ocupacaoViagens = viagens;
-  document.getElementById('ocupacaoArquivoStatus').textContent = `${viagens.length.toLocaleString('pt-BR')} viagens carregadas. A análise usa somente os dados colados.`;
+  document.getElementById('ocupacaoArquivoStatus').textContent = duplicateCount
+    ? `${viagens.length.toLocaleString('pt-BR')} viagens carregadas (${duplicateCount.toLocaleString('pt-BR')} carga${duplicateCount === 1 ? '' : 's'} combinada${duplicateCount === 1 ? '' : 's'} somada${duplicateCount === 1 ? '' : 's'} por número de viagem). A análise usa somente os dados colados.`
+    : `${viagens.length.toLocaleString('pt-BR')} viagens carregadas. A análise usa somente os dados colados.`;
   renderOcupacao();
 }
 
@@ -305,7 +331,8 @@ function renderOcupacaoAnalise() {
   const totalCapacidade = viagens.reduce((sum, viagem) => sum + viagem.capacidade, 0);
   const media = totalCapacidade ? (totalPeso / totalCapacidade) * 100 : 0;
   document.getElementById('ocupacaoViagens').textContent = viagens.length.toLocaleString('pt-BR');
-  document.getElementById('ocupacaoBoas').textContent = viagens.filter((viagem) => viagem.ocupacao >= 90).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoExcelentes').textContent = viagens.filter((viagem) => viagem.ocupacao >= 95).length.toLocaleString('pt-BR');
+  document.getElementById('ocupacaoBoas').textContent = viagens.filter((viagem) => viagem.ocupacao >= 90 && viagem.ocupacao < 95).length.toLocaleString('pt-BR');
   document.getElementById('ocupacaoMedias').textContent = viagens.filter((viagem) => viagem.ocupacao >= 75 && viagem.ocupacao < 90).length.toLocaleString('pt-BR');
   document.getElementById('ocupacaoBaixas').textContent = viagens.filter((viagem) => viagem.ocupacao >= 50 && viagem.ocupacao < 75).length.toLocaleString('pt-BR');
   document.getElementById('ocupacaoPessimas').textContent = viagens.filter((viagem) => viagem.ocupacao < 50).length.toLocaleString('pt-BR');
@@ -315,7 +342,8 @@ function renderOcupacaoAnalise() {
   document.getElementById('ocupacaoResumoTexto').textContent = `${media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da capacidade total foi aproveitada no filtro atual.`;
 
   const faixas = [
-    { label: 'Boa · 90% ou mais', count: viagens.filter((viagem) => viagem.ocupacao >= 90).length, color: 'good' },
+    { label: 'Excelente · 95% ou mais', count: viagens.filter((viagem) => viagem.ocupacao >= 95).length, color: 'excellent' },
+    { label: 'Boa · 90% a 94%', count: viagens.filter((viagem) => viagem.ocupacao >= 90 && viagem.ocupacao < 95).length, color: 'good' },
     { label: 'Média · 75% a 89%', count: viagens.filter((viagem) => viagem.ocupacao >= 75 && viagem.ocupacao < 90).length, color: 'warning' },
     { label: 'Baixa · 50% a 74%', count: viagens.filter((viagem) => viagem.ocupacao >= 50 && viagem.ocupacao < 75).length, color: 'low' },
     { label: 'Péssima · abaixo de 50%', count: viagens.filter((viagem) => viagem.ocupacao < 50).length, color: 'poor' }

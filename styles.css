@@ -6,6 +6,7 @@
   --white: #ffffff;
   --teal: #0e7370;
   --teal-dark: #075654;
+  --excellent: #0b5137;
   --coral: #e47b58;
   --yellow: #eebd4b;
   --shadow: 0 16px 45px rgba(28, 61, 55, 0.09);
@@ -868,6 +869,13 @@ h2 {
 .integrated-view[hidden] {
   display: none;
 }
+#racaoView,
+#ocupacaoView {
+  width: calc(100% - 248px);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 45px 5.5% 70px;
+}
 .subnav-tabs {
   display: flex;
   gap: 8px;
@@ -1030,7 +1038,7 @@ h2 {
 }
 .occupancy-chart-panel {
   min-width: 0;
-  padding: 22px;
+  padding: 26px 30px;
 }
 .occupancy-bars {
   display: grid;
@@ -1059,21 +1067,28 @@ h2 {
   height: 100%;
   border-radius: inherit;
 }
+.occupancy-bar-fill.excellent { background: var(--excellent); }
 .occupancy-bar-fill.good,
 .capacity-track span { background: var(--teal); }
 .occupancy-bar-fill.warning { background: var(--yellow); }
 .occupancy-bar-fill.low { background: var(--coral); }
 .occupancy-capacity-summary {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin: 8px 0 20px;
+  align-items: center;
+  gap: 22px;
+  margin: 18px 0 26px;
   color: var(--muted);
   font-size: 10px;
 }
-.occupancy-capacity-summary strong { color: var(--ink); font-size: 20px; }
-.occupancy-capacity-summary i { flex: 1; height: 1px; background: var(--line); }
+.occupancy-stat {
+  flex: 1;
+  text-align: center;
+}
+.occupancy-capacity-summary strong { display: block; color: var(--ink); font-size: 26px; }
+.occupancy-capacity-summary span { display: block; margin-top: 4px; }
+.occupancy-capacity-summary i { align-self: stretch; width: 1px; background: var(--line); }
 .capacity-track { height: 16px; }
+.chart-info-note { text-align: center; }
 .occupancy-table-heading { margin: 0 0 12px; align-items: center; }
 .occupancy-table-heading h2 { margin: 4px 0 0; font-size: 18px; }
 .occupancy-status {
@@ -1083,10 +1098,12 @@ h2 {
   font-size: 10px;
   font-weight: 700;
 }
+.occupancy-excellent { background: #d6ebe1; color: #0b5137; }
 .occupancy-good { background: #dcefe6; color: #187050; }
 .occupancy-warning { background: #fff1cf; color: #976c13; }
 .occupancy-low { background: #fbe3da; color: #b44f36; }
 .occupancy-poor { background: #eadde0; color: #7d3945; }
+.occupancy-card-excellent { border-top: 3px solid var(--excellent); }
 .occupancy-card-good { border-top: 3px solid var(--teal); }
 .occupancy-card-average { border-top: 3px solid var(--yellow); }
 .occupancy-card-low { border-top: 3px solid var(--coral); }

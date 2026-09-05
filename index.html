@@ -485,11 +485,12 @@
         <div class="occupancy-filter-row">
           <label>Peso mínimo (kg)<input id="ocupacaoFiltroPesoMin" type="number" min="0" placeholder="Ex.: 15000"></label>
           <label>Peso máximo (kg)<input id="ocupacaoFiltroPesoMax" type="number" min="0" placeholder="Ex.: 19000"></label>
-          <label>Faixa<select id="ocupacaoFiltroFaixa"><option value="">Todas as faixas</option><option value="boa">Boa</option><option value="media">Média</option><option value="baixa">Baixa</option><option value="pessima">Péssima</option></select></label>
+          <label>Faixa<select id="ocupacaoFiltroFaixa"><option value="">Todas as faixas</option><option value="excelente">Excelente</option><option value="boa">Boa</option><option value="media">Média</option><option value="baixa">Baixa</option><option value="pessima">Péssima</option></select></label>
         </div>
         <div class="metric-grid occupancy-metrics">
           <article class="metric-card"><span class="metric-label">Total de viagens</span><strong id="ocupacaoViagens">—</strong><span class="metric-note">Registros no filtro atual</span></article>
-          <article class="metric-card occupancy-card-good"><span class="metric-label">Boa ocupação</span><strong id="ocupacaoBoas">—</strong><span class="metric-note">90% ou mais</span></article>
+          <article class="metric-card occupancy-card-excellent"><span class="metric-label">Excelente ocupação</span><strong id="ocupacaoExcelentes">—</strong><span class="metric-note">95% ou mais</span></article>
+          <article class="metric-card occupancy-card-good"><span class="metric-label">Boa ocupação</span><strong id="ocupacaoBoas">—</strong><span class="metric-note">90% a 94,99%</span></article>
           <article class="metric-card occupancy-card-average"><span class="metric-label">Média ocupação</span><strong id="ocupacaoMedias">—</strong><span class="metric-note">75% a 89,99%</span></article>
           <article class="metric-card occupancy-card-low"><span class="metric-label">Baixa ocupação</span><strong id="ocupacaoBaixas">—</strong><span class="metric-note">50% a 74,99%</span></article>
           <article class="metric-card occupancy-card-poor"><span class="metric-label">Péssima ocupação</span><strong id="ocupacaoPessimas">—</strong><span class="metric-note">Abaixo de 50%</span></article>
@@ -501,7 +502,7 @@
           </section>
           <section class="control-panel occupancy-chart-panel">
             <div class="panel-heading"><div><span class="section-kicker">Comparativo</span><h2>Peso x capacidade</h2></div></div>
-            <div class="occupancy-capacity-summary"><strong id="ocupacaoPesoResumo">—</strong><span>kg carregados</span><i></i><strong id="ocupacaoCapacidadeResumo">—</strong><span>kg de capacidade</span></div>
+            <div class="occupancy-capacity-summary"><div class="occupancy-stat"><strong id="ocupacaoPesoResumo">—</strong><span>kg carregados</span></div><i></i><div class="occupancy-stat"><strong id="ocupacaoCapacidadeResumo">—</strong><span>kg de capacidade</span></div></div>
             <div class="capacity-track"><span id="ocupacaoCapacidadeBar"></span></div>
             <p class="chart-info-note" id="ocupacaoResumoTexto">Carregando dados das viagens.</p>
           </section>
@@ -520,6 +521,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="app.js?v=20260904-35"></script>
+  <script src="app.js?v=20260905-39"></script>
 </body>
 </html>
