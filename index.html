@@ -95,6 +95,9 @@
             <div class="selected-list" id="selectedList"></div>
           </div>
 
+          <button class="primary-button" id="analyzeRoute" type="button"><span>✦</span> Analisar combinação</button>
+          <button class="quiet-button" id="clearRoute" type="button">Limpar seleção</button>
+
           <div class="manual-distance-panel">
             <div class="section-title-row compact-row"><div><span class="section-kicker">Medição</span><h3>Distância entre pontos</h3></div></div>
             <div class="point-grid">
@@ -118,9 +121,6 @@
             </div>
             <button class="quiet-button" id="clearManualPoints" type="button">Limpar pontos</button>
           </div>
-
-          <button class="primary-button" id="analyzeRoute" type="button"><span>✦</span> Analisar combinação</button>
-          <button class="quiet-button" id="clearRoute" type="button">Limpar seleção</button>
         </div>
 
         <div class="map-panel" id="mapa">
@@ -289,6 +289,17 @@
             </div>
           </section>
         </div>
+        <section class="projecao-cargas projecao-proxima-carga" aria-labelledby="projecaoProximaCargaTitle">
+          <div class="projecao-cargas-heading">
+            <div><span class="section-kicker">Previsão</span><h2 id="projecaoProximaCargaTitle">Próximas cargas previstas</h2></div>
+          </div>
+          <p class="chart-info-note" id="projecaoProximaCargaInfo"></p>
+          <div class="table-wrap">
+            <table><thead><tr><th>Fase</th><th>Falta enviar</th><th>Carga média (histórico)</th><th>Cargas restantes</th><th>Próxima entrega estimada</th></tr></thead>
+              <tbody id="projecaoProximaCargaBody"><tr><td colspan="5">Selecione um integrado.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div class="racao-panel" id="racaoPanelProgramacao" hidden>
@@ -447,7 +458,7 @@
           </div>
           <div class="table-wrap phase-simulation-results-wrap">
             <table>
-              <thead><tr><th>Fase</th><th>Quantidade de ração</th></tr></thead>
+              <thead><tr id="phaseSimulationHeadRow"><th>Fase</th><th>Quantidade de ração</th></tr></thead>
               <tbody id="phaseSimulationBody"><tr><td colspan="2">Informe a quantidade de animais.</td></tr></tbody>
               <tfoot><tr><td>Total do ciclo</td><td id="phaseSimulationTotal">—</td></tr></tfoot>
             </table>

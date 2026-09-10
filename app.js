@@ -17,6 +17,7 @@ L.marker(origin, { icon: originIcon, zIndexOffset: 1000 }).addTo(map).bindToolti
 const routeLayer = L.layerGroup().addTo(map);
 const selectionLayer = L.layerGroup().addTo(map);
 const possibilityLayer = L.layerGroup().addTo(map);
+const previewLayer = L.layerGroup().addTo(map);
 const manualPointLayer = L.layerGroup().addTo(map);
 const farmOptions = document.getElementById('farmOptions');
 const primaryInput = document.getElementById('primary');
@@ -141,13 +142,30 @@ function renderMapSelection() {
   selectionLayer.clearLayers();
   possibilityLayer.clearLayers();
   routeLayer.clearLayers();
+  updateTypingPreview();
+}
+
+// Mostra um pino no mapa (sem rótulo fixo, só no hover) para o que está sendo digitado nos campos de busca
+function updateTypingPreview() {
+  previewLayer.clearLayers();
+  const primaryFarm = findFarm(primaryInput.value);
+  if (primaryFarm) {
+    L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 950 }).addTo(previewLayer).bindTooltip(`${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
+  }
+  document.querySelectorAll('.candidate-input').forEach((input) => {
+    const farm = findFarm(input.value);
+    if (farm && farm.name !== primaryFarm?.name && !selected.some((item) => item.name === farm.name)) {
+      L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 950 }).addTo(previewLayer).bindTooltip(`${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
+    }
+  });
 }
 
 function renderRoutePoints(primaryFarm, selectedCandidates) {
   selectionLayer.clearLayers();
-  L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+  previewLayer.clearLayers();
+  L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
   selectedCandidates.forEach((farm) => {
-    L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+    L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
   });
 }
 
@@ -434,12 +452,13 @@ function renderRacaoTable() {
   const body = document.getElementById('racaoTableBody');
   if (!body) return;
     const query = normalizeText(document.getElementById('racaoSearch')?.value || '');
-  const visibleFarms = farms.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
-  document.getElementById('racaoTotal').textContent = `${visibleFarms.length} de ${farms.length} integrados`;
+  const cadastrados = farms.filter((farm) => (farm.animals || 0) > 0);
+  const visibleFarms = cadastrados.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)));
+  document.getElementById('racaoTotal').textContent = `${visibleFarms.length} de ${cadastrados.length} integrados`;
   body.innerHTML = visibleFarms.map((farm) => {
     const totalCiclo = (farm.animals || 0) * FEED_CYCLE_KG_POR_ANIMAL;
     return `<tr><td><span class="table-dot"></span>${escapeHtml(farm.name)}</td><td>${escapeHtml(farm.city)}</td><td>${farm.animals || 0}</td><td>${totalCiclo ? `${totalCiclo.toLocaleString('pt-BR')} kg` : '—'}</td><td class="table-actions"><button class="table-action edit-racao" type="button" data-name="${escapeHtml(farm.name)}">Editar</button></td></tr>`;
-  }).join('');
+  }).join('') || '<tr><td colspan="5">Nenhum integrado cadastrado ainda.</td></tr>';
 }
 
 function renderFeedProjection(animals) {
@@ -525,13 +544,10 @@ function renderProjecaoOptions() {
   const cadastrados = farms.filter((farm) => (farm.animals || 0) > 0).sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
   const options = document.getElementById('projecaoFarmOptions');
   const query = normalizeText(previousValue);
-  if (!query) {
-    options.innerHTML = '';
-    return;
-  }
-  options.innerHTML = cadastrados
-    .filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)))
-    .map((farm) => `<option value="${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}"></option>`).join('');
+  const matches = query
+    ? cadastrados.filter((farm) => [farm.name, farm.city].some((value) => normalizeText(value).includes(query)))
+    : cadastrados;
+  options.innerHTML = matches.map((farm) => `<option value="${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}"></option>`).join('');
 }
 
 function getProjecaoFarmName() {
@@ -564,6 +580,7 @@ function renderProjecao() {
     document.getElementById('projecaoRestante').innerHTML = '— <small>kg</small>';
     document.getElementById('projecaoAnimaisAlojados').textContent = '—';
     renderProjecaoPedidos([]);
+    renderProjecaoProximasCargas([], []);
     return;
   }
   empty.hidden = true;
@@ -592,6 +609,7 @@ function renderProjecao() {
   document.getElementById('projecaoProgramada').innerHTML = `${programada.toLocaleString('pt-BR')} <small>kg</small>`;
   document.getElementById('projecaoRestante').innerHTML = `${restante.toLocaleString('pt-BR')} <small>kg</small>`;
   renderProjecaoPedidos(farmPedidos);
+  renderProjecaoProximasCargas(phaseData, farmPedidos);
 }
 
 function renderProjecaoPedidos(farmPedidos) {
@@ -600,6 +618,53 @@ function renderProjecaoPedidos(farmPedidos) {
   if (!body || !total) return;
   total.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
   body.innerHTML = farmPedidos.map((pedido) => `<tr><td>${escapeHtml(pedido.galpao || 'Sem galpão')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="5">Nenhuma carga enviada para este filtro.</td></tr>';
+}
+
+// Projeta próximas cargas com base no histórico real do integrado: kg médio já programado por carga e intervalo médio entre entregas
+function renderProjecaoProximasCargas(phaseData, farmPedidos) {
+  const body = document.getElementById('projecaoProximaCargaBody');
+  const info = document.getElementById('projecaoProximaCargaInfo');
+  if (!body) return;
+  if (!phaseData.length) {
+    body.innerHTML = '<tr><td colspan="5">Selecione um integrado.</td></tr>';
+    if (info) info.textContent = '';
+    return;
+  }
+  const pendentes = phaseData.filter((phase) => phase.falta > 0);
+  if (!pendentes.length) {
+    body.innerHTML = '<tr><td colspan="5">Todas as fases já estão totalmente programadas.</td></tr>';
+    if (info) info.textContent = '';
+    return;
+  }
+  const datasOrdenadas = farmPedidos.map((pedido) => pedido.data_entrega).filter(Boolean).sort();
+  const kgGeralMedio = farmPedidos.length ? farmPedidos.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0) / farmPedidos.length : 0;
+  let intervaloMedioDias = null;
+  if (datasOrdenadas.length >= 2) {
+    const diffs = [];
+    for (let index = 1; index < datasOrdenadas.length; index += 1) {
+      const diasEntre = (new Date(`${datasOrdenadas[index]}T00:00:00`) - new Date(`${datasOrdenadas[index - 1]}T00:00:00`)) / 86400000;
+      if (diasEntre > 0) diffs.push(diasEntre);
+    }
+    if (diffs.length) intervaloMedioDias = diffs.reduce((sum, value) => sum + value, 0) / diffs.length;
+  }
+  let dataBase = datasOrdenadas.length ? new Date(`${datasOrdenadas[datasOrdenadas.length - 1]}T00:00:00`) : null;
+  body.innerHTML = pendentes.map((phase) => {
+    const cargasFase = farmPedidos.filter((pedido) => pedido.fase === phase.sigla);
+    const kgMedioFase = cargasFase.length ? cargasFase.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0) / cargasFase.length : kgGeralMedio;
+    const cargasRestantes = kgMedioFase > 0 ? Math.ceil(phase.falta / kgMedioFase) : null;
+    let proximaDataTexto = '—';
+    if (dataBase && intervaloMedioDias && cargasRestantes) {
+      const proximaData = new Date(dataBase.getTime() + intervaloMedioDias * 86400000);
+      proximaDataTexto = proximaData.toLocaleDateString('pt-BR');
+      dataBase = new Date(dataBase.getTime() + intervaloMedioDias * cargasRestantes * 86400000);
+    }
+    return `<tr><td>${escapeHtml(phase.sigla)} · ${escapeHtml(phase.label)}</td><td>${phase.falta.toLocaleString('pt-BR')} kg</td><td>${kgMedioFase > 0 ? `${Math.round(kgMedioFase).toLocaleString('pt-BR')} kg` : '—'}</td><td>${cargasRestantes ?? '—'}</td><td>${proximaDataTexto}</td></tr>`;
+  }).join('');
+  if (info) {
+    info.textContent = intervaloMedioDias
+      ? `Estimativa baseada no histórico deste integrado: intervalo médio de ${Math.round(intervaloMedioDias)} dia${Math.round(intervaloMedioDias) === 1 ? '' : 's'} entre cargas e no kg médio já programado por carga em cada fase.`
+      : 'Registre pelo menos 2 cargas com datas para estimar o intervalo entre entregas. Por enquanto, mostrando apenas a quantidade estimada de cargas restantes pelo kg médio.';
+  }
 }
 
 function compareFeedOrders(first, second) {
@@ -771,7 +836,10 @@ document.querySelectorAll('.occupancy-tab').forEach((tab) => tab.addEventListene
   document.querySelectorAll('.occupancy-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.occupancyTab; });
 }));
 document.addEventListener('input', (event) => {
-  if (event.target.matches('input[list="farmOptions"]')) renderFarmOptions(event.target.value);
+  if (event.target.matches('input[list="farmOptions"]')) {
+    renderFarmOptions(event.target.value);
+    updateTypingPreview();
+  }
 });
 
 document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('click', () => {
@@ -888,6 +956,7 @@ document.getElementById('addPedido').addEventListener('click', async () => {
   const error = document.getElementById('pedidoFormError');
   const farm = findFarm(name);
   if (!farm) { error.textContent = 'Integrado não encontrado. Verifique o nome digitado.'; return; }
+  if (!(farm.animals > 0)) { error.textContent = 'Este integrado ainda não está cadastrado na aba Cadastro.'; return; }
   if (getGalpoesByFarm(farm.name).length && !galpao) { error.textContent = 'Selecione o galpão.'; return; }
   if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
   if (!fase) { error.textContent = 'Informe o tipo de ração.'; return; }
@@ -1247,7 +1316,7 @@ function renderSuggestions(stops, routeGeometry) {
   const list = document.getElementById('suggestionsList');
   possibilityLayer.clearLayers();
   suggestions.forEach(({ farm }) => {
-    L.marker(farm.coords, { icon: possibilityIcon, zIndexOffset: 900 }).addTo(possibilityLayer).bindTooltip(`Possibilidade · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
+    L.marker(farm.coords, { icon: possibilityIcon, zIndexOffset: 900 }).addTo(possibilityLayer).bindTooltip(`Possibilidade · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
   });
   card.hidden = false;
   document.getElementById('suggestionsCount').textContent = `${suggestions.length} opção${suggestions.length === 1 ? '' : 'ões'}`;
@@ -1378,6 +1447,7 @@ document.getElementById('clearRoute').addEventListener('click', () => {
   routeLayer.clearLayers();
   selectionLayer.clearLayers();
   possibilityLayer.clearLayers();
+  previewLayer.clearLayers();
   document.getElementById('suggestionsCard').hidden = true;
   document.getElementById('suggestionsList').innerHTML = '';
   renderSelected();
