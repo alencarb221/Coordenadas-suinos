@@ -9,9 +9,45 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260919-02">
 </head>
 <body>
+  <div class="auth-gate" id="authGate">
+    <div class="auth-card">
+      <div class="auth-brand"><img class="brand-mark" src="suinotech-icon.svg" alt=""><div><strong>SuinoTech</strong><span>Acesso restrito</span></div></div>
+      <p class="eyebrow">Área privada</p>
+      <h1>Entrar no sistema</h1>
+      <p class="auth-subtitle">Use seu e-mail e senha para acessar os dados da operação.</p>
+      <form id="loginForm">
+        <label class="auth-label" for="loginEmail">E-mail</label>
+        <input id="loginEmail" list="loginEmailHistory" type="email" autocomplete="username" required>
+        <datalist id="loginEmailHistory"></datalist>
+        <div class="login-email-options" id="loginEmailOptions" hidden></div>
+        <label class="auth-label" for="loginPassword">Senha</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+        <p class="form-error" id="loginFormError" role="alert"></p>
+        <button class="primary-button" id="loginButton" type="submit">Entrar</button>
+        <button class="auth-link" id="forgotPasswordButton" type="button">Esqueci minha senha</button>
+      </form>
+      <form id="recoveryRequestForm" hidden>
+        <p class="auth-form-note">Informe seu e-mail e enviaremos um link para criar uma nova senha.</p>
+        <label class="auth-label" for="recoveryEmail">E-mail</label>
+        <input id="recoveryEmail" type="email" autocomplete="email" required>
+        <p class="form-error" id="recoveryFormError" role="alert"></p>
+        <button class="primary-button" id="recoveryButton" type="submit">Enviar link</button>
+        <button class="auth-link" id="backToLoginButton" type="button">Voltar para o login</button>
+      </form>
+      <form id="newPasswordForm" hidden>
+        <p class="auth-form-note">Escolha uma nova senha para sua conta.</p>
+        <label class="auth-label" for="newPassword">Nova senha</label>
+        <input id="newPassword" type="password" autocomplete="new-password" minlength="8" required>
+        <label class="auth-label" for="newPasswordConfirmation">Confirmar nova senha</label>
+        <input id="newPasswordConfirmation" type="password" autocomplete="new-password" minlength="8" required>
+        <p class="form-error" id="newPasswordFormError" role="alert"></p>
+        <button class="primary-button" type="submit">Salvar nova senha</button>
+      </form>
+    </div>
+  </div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -33,7 +69,8 @@
 
       <div class="sidebar-footer">
         <div class="status-dot"></div>
-        <div><strong>Base São Miguel do Oeste</strong><span>Dados locais carregados</span></div>
+        <div><strong>Base São Miguel do Oeste</strong><span id="authUserLabel">Sessão protegida</span></div>
+        <button class="sidebar-logout" id="logoutButton" type="button" title="Sair">Sair</button>
       </div>
     </aside>
 
@@ -128,7 +165,8 @@
             <div class="map-title"><span class="live-dot"></span><strong>Visão geral</strong><span>São Miguel do Oeste, SC</span></div>
             <div class="map-actions">
               <button class="map-layer" id="factoryButton" type="button" title="Centralizar na fábrica">⌾ Fábrica</button>
-              <button class="map-layer" id="satelliteToggle" type="button">Satélite</button>              <button class="map-layer" id="openInGoogleMaps" type="button" title="Abrir esta rota no Google Maps">Abrir no Google Maps</button>            </div>
+              <button class="map-layer" id="openInGoogleMaps" type="button" title="Abrir esta rota no Google Maps">Abrir no Google Maps</button>
+            </div>
           </div>
           <div id="map" aria-label="Mapa das granjas e da fábrica"></div>
           <div class="map-legend">
@@ -275,6 +313,9 @@
           <article class="metric-card"><span class="metric-label">Ração já programada</span><strong id="projecaoProgramada">— <small>kg</small></strong><span class="metric-note">Soma dos pedidos lançados</span></article>
           <article class="metric-card"><span class="metric-label">Ração que falta programar</span><strong id="projecaoRestante">— <small>kg</small></strong><span class="metric-note">Ciclo completo menos o já programado</span></article>
         </div>
+        <div class="projecao-agendamento" id="projecaoAgendamento" hidden>
+          <button class="primary-button" id="openProjecaoPedido" type="button" disabled>Agendar carga</button>
+        </div>
         <div class="projecao-columns">
           <div class="chart-bars" id="projecaoChart"></div>
           <section class="projecao-cargas" aria-labelledby="projecaoCargasTitle">
@@ -374,6 +415,32 @@
           <textarea id="pedidoEditObservacao" class="observacao-textarea" rows="2"></textarea>
           <p class="form-error" id="pedidoEditFormError" role="alert"></p>
           <div class="modal-actions"><button class="quiet-button" id="cancelPedidoModal" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar</button></div>
+        </form>
+      </div>
+
+      <div class="modal-backdrop" id="projecaoPedidoModal" hidden>
+        <form class="integrated-modal" id="projecaoPedidoForm">
+          <div class="modal-header"><div><span class="section-kicker">Projeção</span><h2>Agendar carga</h2></div><button class="modal-close" id="closeProjecaoPedido" type="button" aria-label="Fechar">×</button></div>
+          <div class="integrated-form-grid">
+            <label>Integrado<input id="projecaoPedidoIntegrado" disabled></label>
+            <label>Galpão
+              <select id="projecaoPedidoGalpao"><option value="">Sem galpão cadastrado</option></select>
+            </label>
+            <label>Data da entrega<input id="projecaoPedidoData" type="date"></label>
+            <label>Tipo de ração
+              <select id="projecaoPedidoFase">
+                <option value="">Selecione a fase</option>
+                <option value="RSC-1">RSC-1</option>
+                <option value="RSC-2">RSC-2</option>
+                <option value="RSC-3">RSC-3</option>
+                <option value="RST-2">RST-2</option>
+                <option value="RST-3">RST-3</option>
+              </select>
+            </label>
+            <label>Quantidade de ração (kg)<input id="projecaoPedidoQuantidade" type="number" min="0" step="1" placeholder="Ex.: 3000"></label>
+          </div>
+          <p class="form-error" id="projecaoPedidoFormError" role="alert"></p>
+          <div class="modal-actions"><button class="quiet-button" id="cancelProjecaoPedido" type="button">Cancelar</button><button class="primary-button" type="submit">Agendar carga</button></div>
         </form>
       </div>
 
@@ -532,6 +599,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="app.js?v=20260905-39"></script>
+  <script src="app.js?v=20260919-02"></script>
 </body>
 </html>

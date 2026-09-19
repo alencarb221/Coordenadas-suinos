@@ -3,10 +3,8 @@ let farms = [];
 
 const map = L.map('map', { zoomControl: false }).setView(origin, 9);
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
-const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri' });
-const satelliteRoadLayer = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { attribution: 'Road data &copy; Esri' });
-let satelliteActive = false;
+const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri' }).addTo(map);
+const satelliteRoadLayer = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { attribution: 'Road data &copy; Esri' }).addTo(map);
 
 const originIcon = L.divIcon({ className: 'custom-pin origin-pin', html: '<span>F</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 const primaryIcon = L.divIcon({ className: 'custom-pin primary-pin', html: '<span>A</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
@@ -27,6 +25,8 @@ const selected = [];
 let farmsLoaded = false;
 let routeAnalysisInProgress = false;
 const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+let authenticatedDataLoaded = false;
+const LOGIN_EMAILS_STORAGE_KEY = 'coordenadas-suinos-login-emails';
 // kg por animal em cada fase, conforme planilha "Phase feeding-Suinos"
 const DEFAULT_FEED_PHASES = [
   { label: 'RS Alojamento', sigla: 'RSCA', kgPorAnimal: 15 },
@@ -571,6 +571,10 @@ function renderProjecao() {
   const name = getProjecaoFarmName();
   const galpaoFiltro = document.getElementById('projecaoGalpaoSelect').value;
   const farm = farms.find((item) => item.name === name);
+  const agendarButton = document.getElementById('openProjecaoPedido');
+  const agendamento = document.getElementById('projecaoAgendamento');
+  if (agendamento) agendamento.hidden = !farm;
+  if (agendarButton) agendarButton.disabled = !farm;
   if (!farm) {
     chart.innerHTML = '';
     rscaInfo.textContent = '';
@@ -587,6 +591,7 @@ function renderProjecao() {
   const animals = galpaoFiltro
     ? (getGalpoesByFarm(farm.name).find((galpao) => galpao.nome_galpao === galpaoFiltro)?.animais_alojados || 0)
     : (farm.animals || 0);
+  if (agendarButton) agendarButton.disabled = false;
   const farmPedidos = pedidos
     .filter((pedido) => pedido.integrado_nome === farm.name && (!galpaoFiltro || pedido.galpao === galpaoFiltro))
     .sort(compareFeedOrders);
@@ -854,6 +859,57 @@ document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('
 document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); });
 document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); renderProjecao(); });
 document.getElementById('projecaoGalpaoSelect').addEventListener('change', renderProjecao);
+
+function openProjecaoPedidoModal() {
+  const farmName = getProjecaoFarmName();
+  const farm = farms.find((item) => item.name === farmName);
+  if (!farm) return;
+  const galpaoFiltro = document.getElementById('projecaoGalpaoSelect').value;
+  document.getElementById('projecaoPedidoModal').hidden = false;
+  document.getElementById('projecaoPedidoIntegrado').value = farm.name;
+  populateGalpaoSelect(document.getElementById('projecaoPedidoGalpao'), farm.name, galpaoFiltro);
+  document.getElementById('projecaoPedidoData').value = '';
+  document.getElementById('projecaoPedidoFase').value = '';
+  document.getElementById('projecaoPedidoQuantidade').value = '';
+  document.getElementById('projecaoPedidoFormError').textContent = '';
+}
+
+function closeProjecaoPedidoModal() {
+  document.getElementById('projecaoPedidoModal').hidden = true;
+}
+
+document.getElementById('openProjecaoPedido').addEventListener('click', openProjecaoPedidoModal);
+document.getElementById('closeProjecaoPedido').addEventListener('click', closeProjecaoPedidoModal);
+document.getElementById('cancelProjecaoPedido').addEventListener('click', closeProjecaoPedidoModal);
+document.getElementById('projecaoPedidoModal').addEventListener('click', (event) => { if (event.target.id === 'projecaoPedidoModal') closeProjecaoPedidoModal(); });
+
+document.getElementById('projecaoPedidoForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const farmName = getProjecaoFarmName();
+  const farm = farms.find((item) => item.name === farmName);
+  const galpao = document.getElementById('projecaoPedidoGalpao').value;
+  const data = document.getElementById('projecaoPedidoData').value;
+  const fase = document.getElementById('projecaoPedidoFase').value;
+  const quantidade = Number(document.getElementById('projecaoPedidoQuantidade').value);
+  const error = document.getElementById('projecaoPedidoFormError');
+  if (!farm) { error.textContent = 'Selecione um integrado na projeção.'; return; }
+  if (getGalpoesByFarm(farm.name).length && !galpao) { error.textContent = 'Selecione o galpão.'; return; }
+  if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
+  if (!fase) { error.textContent = 'Informe o tipo de ração.'; return; }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) { error.textContent = 'Informe uma quantidade de ração válida.'; return; }
+  const { data: inserted, error: insertError } = await supabaseClient.from('pedidos_racao').insert({ integrado_nome: farm.name, galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: null }).select().single();
+  if (insertError) {
+    console.error('Erro ao agendar carga de ração:', insertError);
+    error.textContent = `Não foi possível agendar a carga. Detalhes: ${insertError.message}`;
+    return;
+  }
+  pedidos.unshift(inserted);
+  renderPedidosTable();
+  renderRelatorioPedidos();
+  renderProjecao();
+  closeProjecaoPedidoModal();
+});
+
 document.getElementById('savePhaseFeeding').addEventListener('click', saveFeedPhases);
 document.getElementById('calculatePhaseSimulation').addEventListener('click', renderPhaseSimulation);
 
@@ -1100,14 +1156,154 @@ syncMapHeightWithMeasurement();
 window.addEventListener('resize', syncMapHeightWithMeasurement);
 if (window.ResizeObserver) new ResizeObserver(syncMapHeightWithMeasurement).observe(document.querySelector('.manual-distance-panel'));
 
-loadFarms().catch((error) => {
-  document.querySelector('.draft-badge').textContent = 'Erro ao carregar pontos';
-  const detail = error?.message ? ` Detalhes: ${error.message}` : '';
-  document.querySelector('.subtitle').textContent = `Não foi possível carregar os integrados do Supabase.${detail}`;
-  console.error(error);
+function updateAuthInterface(session) {
+  document.getElementById('authGate').hidden = Boolean(session);
+  document.getElementById('authUserLabel').textContent = session?.user?.email || 'Sessão protegida';
+}
+
+function showAuthForm(formId) {
+  ['loginForm', 'recoveryRequestForm', 'newPasswordForm'].forEach((id) => {
+    document.getElementById(id).hidden = id !== formId;
+  });
+  document.getElementById('authGate').hidden = false;
+}
+
+function loadLoginEmailHistory() {
+  const options = document.getElementById('loginEmailHistory');
+  const visibleOptions = document.getElementById('loginEmailOptions');
+  try {
+    const emails = JSON.parse(localStorage.getItem(LOGIN_EMAILS_STORAGE_KEY) || '[]');
+    options.innerHTML = emails.map((email) => `<option value="${escapeHtml(email)}"></option>`).join('');
+    visibleOptions.innerHTML = emails.map((email) => `<button class="login-email-option" type="button" data-email="${escapeHtml(email)}">${escapeHtml(email)}</button>`).join('');
+    visibleOptions.hidden = emails.length === 0;
+    if (emails[0]) document.getElementById('loginEmail').value = emails[0];
+  } catch (error) {
+    console.warn('Não foi possível carregar o histórico de e-mails:', error);
+  }
+}
+
+function saveLoginEmail(email) {
+  try {
+    const emails = JSON.parse(localStorage.getItem(LOGIN_EMAILS_STORAGE_KEY) || '[]').filter((value) => value !== email);
+    localStorage.setItem(LOGIN_EMAILS_STORAGE_KEY, JSON.stringify([email, ...emails].slice(0, 3)));
+    loadLoginEmailHistory();
+  } catch (error) {
+    console.warn('Não foi possível salvar o e-mail para autocomplete:', error);
+  }
+}
+
+document.getElementById('loginEmailOptions').addEventListener('click', (event) => {
+  const option = event.target.closest('.login-email-option');
+  if (option) document.getElementById('loginEmail').value = option.dataset.email;
 });
-loadGalpoes();
-loadPedidos();
+
+function loadAuthenticatedData() {
+  if (authenticatedDataLoaded) return;
+  authenticatedDataLoaded = true;
+  loadFarms().catch((error) => {
+    document.querySelector('.draft-badge').textContent = 'Erro ao carregar pontos';
+    const detail = error?.message ? ` Detalhes: ${error.message}` : '';
+    document.querySelector('.subtitle').textContent = `Não foi possível carregar os integrados do Supabase.${detail}`;
+    console.error(error);
+  });
+  loadGalpoes();
+  loadPedidos();
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = document.getElementById('loginButton');
+  const error = document.getElementById('loginFormError');
+  button.disabled = true;
+  error.textContent = '';
+  if (!supabaseClient) {
+    error.textContent = 'Configuração do Supabase não carregada.';
+    button.disabled = false;
+    return;
+  }
+  const email = document.getElementById('loginEmail').value.trim();
+  const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password: document.getElementById('loginPassword').value,
+  });
+  if (signInError) error.textContent = 'E-mail ou senha inválidos.';
+  else saveLoginEmail(email);
+  button.disabled = false;
+});
+
+document.getElementById('forgotPasswordButton').addEventListener('click', () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  document.getElementById('recoveryEmail').value = email;
+  document.getElementById('recoveryFormError').textContent = '';
+  showAuthForm('recoveryRequestForm');
+});
+
+document.getElementById('backToLoginButton').addEventListener('click', () => {
+  document.getElementById('loginFormError').textContent = '';
+  showAuthForm('loginForm');
+});
+
+document.getElementById('recoveryRequestForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = document.getElementById('recoveryButton');
+  const error = document.getElementById('recoveryFormError');
+  const email = document.getElementById('recoveryEmail').value.trim();
+  button.disabled = true;
+  error.textContent = '';
+  const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: window.location.href.split('#')[0] });
+  if (resetError) error.textContent = 'Não foi possível enviar o link de recuperação.';
+  else error.textContent = 'Link enviado. Verifique seu e-mail, inclusive a pasta de spam.';
+  button.disabled = false;
+});
+
+document.getElementById('newPasswordForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const error = document.getElementById('newPasswordFormError');
+  const password = document.getElementById('newPassword').value;
+  const confirmation = document.getElementById('newPasswordConfirmation').value;
+  if (password.length < 8) { error.textContent = 'A nova senha deve ter pelo menos 8 caracteres.'; return; }
+  if (password !== confirmation) { error.textContent = 'As senhas não conferem.'; return; }
+  const { error: updateError } = await supabaseClient.auth.updateUser({ password });
+  if (updateError) { error.textContent = 'Não foi possível atualizar a senha.'; return; }
+  window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+  showAuthForm('loginForm');
+  document.getElementById('loginFormError').textContent = 'Senha atualizada. Entre com a nova senha.';
+  await supabaseClient.auth.signOut();
+});
+
+document.getElementById('logoutButton').addEventListener('click', async () => {
+  if (!supabaseClient) return;
+  const button = document.getElementById('logoutButton');
+  button.disabled = true;
+  await supabaseClient.auth.signOut();
+  window.location.reload();
+});
+
+async function initializeAuth() {
+  if (!supabaseClient) {
+    document.getElementById('loginFormError').textContent = 'Configuração do Supabase não carregada.';
+    return;
+  }
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    document.getElementById('loginFormError').textContent = 'Não foi possível verificar a sessão.';
+    return;
+  }
+  loadLoginEmailHistory();
+  updateAuthInterface(data.session);
+  if (data.session) loadAuthenticatedData();
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      showAuthForm('newPasswordForm');
+      return;
+    }
+    updateAuthInterface(session);
+    if (session) setTimeout(loadAuthenticatedData, 0);
+    else authenticatedDataLoaded = false;
+  });
+}
+
+initializeAuth();
 
 function routeCoordinates(points) {
   return points.map(([latitude, longitude]) => `${longitude},${latitude}`).join(';');
@@ -1340,21 +1536,6 @@ document.getElementById('openInGoogleMaps').addEventListener('click', () => {
   if (!primaryFarm) { window.alert('Selecione o integrado principal antes de abrir no Google Maps.'); return; }
   const points = [origin, ...selected.map((farm) => farm.coords), primaryFarm.coords];
   window.open(googleMapsDirectionsUrl(points), '_blank', 'noopener');
-});
-
-document.getElementById('satelliteToggle').addEventListener('click', (event) => {
-  satelliteActive = !satelliteActive;
-  if (satelliteActive) {
-    map.removeLayer(streetLayer);
-    map.addLayer(satelliteLayer);
-    map.addLayer(satelliteRoadLayer);
-  } else {
-    map.removeLayer(satelliteLayer);
-    map.removeLayer(satelliteRoadLayer);
-    map.addLayer(streetLayer);
-  }
-  event.currentTarget.classList.toggle('is-active', satelliteActive);
-  event.currentTarget.textContent = satelliteActive ? 'Mapa padrão' : 'Satélite';
 });
 
 document.getElementById('suggestionsList').addEventListener('click', (event) => {
