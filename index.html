@@ -247,6 +247,7 @@
         <button class="subnav-tab" data-racao-tab="racaoPanelProjecao" type="button" role="tab">Projeção</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelProgramacao" type="button" role="tab">Programação</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelRelatorio" type="button" role="tab">Relatório</button>
+        <button class="subnav-tab" data-racao-tab="racaoPanelHistorico" type="button" role="tab">Histórico</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelPhaseFeeding" type="button" role="tab">Phase Feeding</button>
       </div>
 
@@ -318,29 +319,31 @@
         </div>
         <div class="projecao-columns">
           <div class="chart-bars" id="projecaoChart"></div>
-          <section class="projecao-cargas" aria-labelledby="projecaoCargasTitle">
-            <div class="projecao-cargas-heading">
-              <div><span class="section-kicker">Histórico</span><h2 id="projecaoCargasTitle">Cargas enviadas</h2></div>
+          <section class="projecao-cargas" aria-labelledby="projecaoPlanejadasTitle">
+            <div class="projecao-cargas-heading projecao-planejadas-heading">
+              <div><span class="section-kicker">Planejamento</span><h2 id="projecaoPlanejadasTitle">Planejamento de cargas</h2></div>
+              <span class="integrated-total" id="projecaoCargasPlanejadasTotal">0 cargas · 0 kg</span>
+            </div>
+            <div class="projecao-cargas-heading projecao-agendadas-heading">
+              <div><span class="section-kicker">Agendadas</span><h2>Cargas programadas</h2></div>
               <span class="integrated-total" id="projecaoPedidosTotal">0 cargas</span>
             </div>
             <div class="table-wrap">
-              <table><thead><tr><th>Galpão</th><th>Entrega</th><th>Fase</th><th>Quantidade</th><th>Ações</th></tr></thead>
-                <tbody id="projecaoPedidosBody"><tr><td colspan="4">Selecione um integrado.</td></tr></tbody>
+              <table class="projecao-agendadas-table"><thead><tr><th>Entrega</th><th>Galpão</th><th>Fase</th><th>Quantidade</th><th>Ações</th></tr></thead>
+                <tbody id="projecaoPedidosPlanejadosBody"><tr><td colspan="5">Selecione um integrado.</td></tr></tbody>
+              </table>
+            </div>
+            <div class="projecao-cargas-heading projecao-sugestoes-heading">
+              <div><span class="section-kicker">Saldo restante</span><h2>Cargas sugeridas (máx. 18.000 kg)</h2></div>
+            </div>
+            <p class="chart-info-note projecao-planejadas-info" id="projecaoCargasPlanejadasInfo"></p>
+            <div class="table-wrap">
+              <table><thead><tr><th>Carga</th><th>Fase</th><th>Quantidade</th></tr></thead>
+                <tbody id="projecaoCargasPlanejadasBody"><tr><td colspan="3">Selecione um integrado.</td></tr></tbody>
               </table>
             </div>
           </section>
         </div>
-        <section class="projecao-cargas projecao-proxima-carga" aria-labelledby="projecaoProximaCargaTitle">
-          <div class="projecao-cargas-heading">
-            <div><span class="section-kicker">Previsão</span><h2 id="projecaoProximaCargaTitle">Próximas cargas previstas</h2></div>
-          </div>
-          <p class="chart-info-note" id="projecaoProximaCargaInfo"></p>
-          <div class="table-wrap">
-            <table><thead><tr><th>Fase</th><th>Falta enviar</th><th>Carga média (histórico)</th><th>Cargas restantes</th><th>Próxima entrega estimada</th></tr></thead>
-              <tbody id="projecaoProximaCargaBody"><tr><td colspan="5">Selecione um integrado.</td></tr></tbody>
-            </table>
-          </div>
-        </section>
       </div>
 
       <div class="racao-panel" id="racaoPanelProgramacao" hidden>
@@ -358,6 +361,20 @@
             <div class="select-wrap">
               <select id="pedidoGalpao"><option value="">Sem galpão cadastrado</option></select>
             </div>
+            <section class="pedido-phase-preview" id="pedidoPhasePreview" hidden>
+              <label class="field-label" for="pedidoPhaseGalpao">Visualizar Phase Feeding</label>
+              <div class="select-wrap">
+                <select id="pedidoPhaseGalpao"><option value="">Todos os galpões (total)</option></select>
+              </div>
+              <p class="pedido-phase-summary" id="pedidoPhaseSummary"></p>
+              <div class="pedido-phase-table-wrap">
+                <table>
+                  <thead><tr><th>Fase</th><th>Projetado</th><th>Programado</th><th>Saldo</th></tr></thead>
+                  <tbody id="pedidoPhaseBody"></tbody>
+                </table>
+              </div>
+              <p class="pedido-phase-note" id="pedidoPhaseNote"></p>
+            </section>
             <label class="field-label" for="pedidoData">Data da entrega</label>
             <input id="pedidoData" type="date">
             <label class="field-label" for="pedidoFase">Tipo de ração</label>
@@ -384,7 +401,7 @@
           <span class="integrated-total" id="pedidosTotal"></span>
         </div>
         <div class="table-wrap integrated-table-wrap">
-          <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th><th>Ações</th></tr></thead>
+          <table><thead><tr><th>Integrado</th><th>Galpão</th><th>Data de entrega</th><th>Fase</th><th>Quantidade (kg)</th><th>Observação</th></tr></thead>
             <tbody id="pedidosTableBody"></tbody>
           </table>
         </div>
@@ -439,6 +456,8 @@
             </label>
             <label>Quantidade de ração (kg)<input id="projecaoPedidoQuantidade" type="number" min="0" step="1" placeholder="Ex.: 3000"></label>
           </div>
+          <label class="field-label" for="projecaoPedidoObservacao">Observação</label>
+          <textarea id="projecaoPedidoObservacao" class="observacao-textarea" rows="2" placeholder="Informações para quem for carregar/entregar"></textarea>
           <p class="form-error" id="projecaoPedidoFormError" role="alert"></p>
           <div class="modal-actions"><button class="quiet-button" id="cancelProjecaoPedido" type="button">Cancelar</button><button class="primary-button" type="submit">Agendar carga</button></div>
         </form>
@@ -496,6 +515,22 @@
             <tfoot id="relatorioTotalFoot" hidden>
               <tr class="relatorio-total-row"><td colspan="4">Total</td><td id="relatorioTotalQuantidade">0 kg</td><td id="relatorioTotalIntegrados">0 integrados</td></tr>
             </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="racao-panel" id="racaoPanelHistorico" hidden>
+        <div class="section-title-row">
+          <div><span class="section-kicker">Arquivo</span><h2>Lotes concluídos</h2></div>
+        </div>
+        <form class="integrated-toolbar historico-toolbar" id="historicoLotesForm">
+          <div class="search-control"><span>⌕</span><input id="historicoLotesBusca" type="search" placeholder="Buscar integrado concluído" autocomplete="off"></div>
+          <button class="quiet-button" type="submit">Buscar</button>
+        </form>
+        <div class="integrated-toolbar"><span class="integrated-total" id="historicoLotesTotal">Carregando lotes concluídos...</span></div>
+        <div class="table-wrap historico-table-wrap">
+          <table><thead><tr><th>Integrado</th><th>Cidade</th><th>Concluído em</th><th>Animais</th><th>Cargas arquivadas</th></tr></thead>
+            <tbody id="historicoLotesBody"><tr><td colspan="5">Carregando lotes concluídos...</td></tr></tbody>
           </table>
         </div>
       </div>

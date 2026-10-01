@@ -36,6 +36,7 @@ const DEFAULT_FEED_PHASES = [
   { label: 'RS Terminação 2', sigla: 'RST-2', kgPorAnimal: 35 },
   { label: 'RS Terminação 3', sigla: 'RST-3', kgPorAnimal: 65 },
 ];
+const MAX_TRUCK_LOAD_KG = 18000;
 const FEED_PHASES_STORAGE_KEY = 'coordenadas-suinos-phase-feeding';
 let FEED_PHASES = loadFeedPhases();
 let FEED_CYCLE_KG_POR_ANIMAL = getFeedCycleKgPerAnimal();
@@ -43,6 +44,7 @@ let baseFarms = [];
 let farmRefreshQueued = false;
 let pedidos = [];
 let galpoes = [];
+let historicoLotesRequestId = 0;
 let ocupacaoViagens = [];
 let manualPointSelection = null;
 const manualPointColors = {
@@ -583,8 +585,7 @@ function renderProjecao() {
     document.getElementById('projecaoProgramada').innerHTML = '— <small>kg</small>';
     document.getElementById('projecaoRestante').innerHTML = '— <small>kg</small>';
     document.getElementById('projecaoAnimaisAlojados').textContent = '—';
-    renderProjecaoPedidos([]);
-    renderProjecaoProximasCargas([], []);
+    renderProjecaoCargasPlanejadas([], []);
     return;
   }
   empty.hidden = true;
@@ -613,63 +614,39 @@ function renderProjecao() {
   document.getElementById('projecaoTotalCiclo').innerHTML = `${totalCiclo.toLocaleString('pt-BR')} <small>kg</small>`;
   document.getElementById('projecaoProgramada').innerHTML = `${programada.toLocaleString('pt-BR')} <small>kg</small>`;
   document.getElementById('projecaoRestante').innerHTML = `${restante.toLocaleString('pt-BR')} <small>kg</small>`;
-  renderProjecaoPedidos(farmPedidos);
-  renderProjecaoProximasCargas(phaseData, farmPedidos);
+  renderProjecaoCargasPlanejadas(phaseData, farmPedidos);
 }
 
-function renderProjecaoPedidos(farmPedidos) {
-  const body = document.getElementById('projecaoPedidosBody');
-  const total = document.getElementById('projecaoPedidosTotal');
-  if (!body || !total) return;
-  total.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
-  body.innerHTML = farmPedidos.map((pedido) => `<tr><td>${escapeHtml(pedido.galpao || 'Sem galpão')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="5">Nenhuma carga enviada para este filtro.</td></tr>';
-}
-
-// Projeta próximas cargas com base no histórico real do integrado: kg médio já programado por carga e intervalo médio entre entregas
-function renderProjecaoProximasCargas(phaseData, farmPedidos) {
-  const body = document.getElementById('projecaoProximaCargaBody');
-  const info = document.getElementById('projecaoProximaCargaInfo');
+function renderProjecaoCargasPlanejadas(phaseData, farmPedidos) {
+  const body = document.getElementById('projecaoCargasPlanejadasBody');
+  const pedidosBody = document.getElementById('projecaoPedidosPlanejadosBody');
+  const pedidosTotal = document.getElementById('projecaoPedidosTotal');
+  const total = document.getElementById('projecaoCargasPlanejadasTotal');
+  const info = document.getElementById('projecaoCargasPlanejadasInfo');
   if (!body) return;
+  if (pedidosTotal) pedidosTotal.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
+  if (pedidosBody) {
+    pedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || `<tr><td colspan="5">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
+  }
   if (!phaseData.length) {
-    body.innerHTML = '<tr><td colspan="5">Selecione um integrado.</td></tr>';
+    body.innerHTML = '<tr><td colspan="3">Selecione um integrado.</td></tr>';
+    if (total) total.textContent = '0 cargas · 0 kg';
     if (info) info.textContent = '';
     return;
   }
-  const pendentes = phaseData.filter((phase) => phase.falta > 0);
-  if (!pendentes.length) {
-    body.innerHTML = '<tr><td colspan="5">Todas as fases já estão totalmente programadas.</td></tr>';
-    if (info) info.textContent = '';
-    return;
-  }
-  const datasOrdenadas = farmPedidos.map((pedido) => pedido.data_entrega).filter(Boolean).sort();
-  const kgGeralMedio = farmPedidos.length ? farmPedidos.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0) / farmPedidos.length : 0;
-  let intervaloMedioDias = null;
-  if (datasOrdenadas.length >= 2) {
-    const diffs = [];
-    for (let index = 1; index < datasOrdenadas.length; index += 1) {
-      const diasEntre = (new Date(`${datasOrdenadas[index]}T00:00:00`) - new Date(`${datasOrdenadas[index - 1]}T00:00:00`)) / 86400000;
-      if (diasEntre > 0) diffs.push(diasEntre);
+  const cargas = [];
+  phaseData.forEach((phase) => {
+    let restante = Math.max(0, Number(phase.falta) || 0);
+    while (restante > 0) {
+      const quantidade = Math.min(MAX_TRUCK_LOAD_KG, restante);
+      cargas.push({ fase: phase.sigla, quantidade });
+      restante = Math.round((restante - quantidade) * 100) / 100;
     }
-    if (diffs.length) intervaloMedioDias = diffs.reduce((sum, value) => sum + value, 0) / diffs.length;
-  }
-  let dataBase = datasOrdenadas.length ? new Date(`${datasOrdenadas[datasOrdenadas.length - 1]}T00:00:00`) : null;
-  body.innerHTML = pendentes.map((phase) => {
-    const cargasFase = farmPedidos.filter((pedido) => pedido.fase === phase.sigla);
-    const kgMedioFase = cargasFase.length ? cargasFase.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0) / cargasFase.length : kgGeralMedio;
-    const cargasRestantes = kgMedioFase > 0 ? Math.ceil(phase.falta / kgMedioFase) : null;
-    let proximaDataTexto = '—';
-    if (dataBase && intervaloMedioDias && cargasRestantes) {
-      const proximaData = new Date(dataBase.getTime() + intervaloMedioDias * 86400000);
-      proximaDataTexto = proximaData.toLocaleDateString('pt-BR');
-      dataBase = new Date(dataBase.getTime() + intervaloMedioDias * cargasRestantes * 86400000);
-    }
-    return `<tr><td>${escapeHtml(phase.sigla)} · ${escapeHtml(phase.label)}</td><td>${phase.falta.toLocaleString('pt-BR')} kg</td><td>${kgMedioFase > 0 ? `${Math.round(kgMedioFase).toLocaleString('pt-BR')} kg` : '—'}</td><td>${cargasRestantes ?? '—'}</td><td>${proximaDataTexto}</td></tr>`;
-  }).join('');
-  if (info) {
-    info.textContent = intervaloMedioDias
-      ? `Estimativa baseada no histórico deste integrado: intervalo médio de ${Math.round(intervaloMedioDias)} dia${Math.round(intervaloMedioDias) === 1 ? '' : 's'} entre cargas e no kg médio já programado por carga em cada fase.`
-      : 'Registre pelo menos 2 cargas com datas para estimar o intervalo entre entregas. Por enquanto, mostrando apenas a quantidade estimada de cargas restantes pelo kg médio.';
-  }
+  });
+  const totalKg = cargas.reduce((sum, carga) => sum + carga.quantidade, 0);
+  if (total) total.textContent = `${cargas.length} carga${cargas.length === 1 ? '' : 's'} · ${totalKg.toLocaleString('pt-BR')} kg`;
+  body.innerHTML = cargas.map((carga, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(carga.fase)}</td><td>${carga.quantidade.toLocaleString('pt-BR')} kg</td></tr>`).join('') || '<tr><td colspan="3">Todas as fases já estão totalmente programadas.</td></tr>';
+  if (info) info.textContent = 'Sugestões calculadas pelo saldo de cada fase. Ao agendar uma carga, o saldo e esta lista são atualizados; estas sugestões não são gravadas até serem agendadas.';
 }
 
 function compareFeedOrders(first, second) {
@@ -694,6 +671,38 @@ function renderPedidosTable() {
   if (!body) return;
   document.getElementById('pedidosTotal').textContent = `${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'}`;
   body.innerHTML = pedidos.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido registrado ainda.</td></tr>';
+}
+
+async function loadHistoricoLotes() {
+  const body = document.getElementById('historicoLotesBody');
+  const total = document.getElementById('historicoLotesTotal');
+  const queryText = document.getElementById('historicoLotesBusca').value.trim();
+  const requestId = ++historicoLotesRequestId;
+  body.innerHTML = '<tr><td colspan="5">Buscando lotes concluídos...</td></tr>';
+
+  let query = supabaseClient
+    .from('historico_lotes_racao')
+    .select('id, integrado_nome, cidade, animais_alojados, pedidos, concluido_em')
+    .order('concluido_em', { ascending: false })
+    .limit(100);
+  if (queryText) query = query.ilike('integrado_nome', `%${queryText}%`);
+
+  const { data, error } = await query;
+  if (requestId !== historicoLotesRequestId) return;
+  if (error) {
+    total.textContent = 'Não foi possível carregar o histórico.';
+    body.innerHTML = '<tr><td colspan="5">Verifique se a configuração SQL do histórico foi aplicada no Supabase.</td></tr>';
+    console.error('Erro ao carregar histórico de lotes:', error);
+    return;
+  }
+
+  const lotes = data || [];
+  total.textContent = `${lotes.length} lote${lotes.length === 1 ? '' : 's'} concluído${lotes.length === 1 ? '' : 's'}${lotes.length === 100 ? ' (mostrando os 100 mais recentes)' : ''}`;
+  body.innerHTML = lotes.map((lote) => {
+    const dataConclusao = lote.concluido_em ? new Date(lote.concluido_em).toLocaleString('pt-BR') : '—';
+    const cargas = Array.isArray(lote.pedidos) ? lote.pedidos.length : 0;
+    return `<tr><td>${escapeHtml(lote.integrado_nome)}</td><td>${escapeHtml(lote.cidade || '—')}</td><td>${dataConclusao}</td><td>${Number(lote.animais_alojados || 0).toLocaleString('pt-BR')}</td><td>${cargas}</td></tr>`;
+  }).join('') || '<tr><td colspan="5">Nenhum lote concluído encontrado.</td></tr>';
 }
 
 function openPedidoModal(pedido) {
@@ -853,8 +862,14 @@ document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('
   if (tab.dataset.racaoTab === 'racaoPanelProjecao') { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); }
   if (tab.dataset.racaoTab === 'racaoPanelProgramacao') renderPedidosTable();
   if (tab.dataset.racaoTab === 'racaoPanelRelatorio') renderRelatorioPedidos();
+  if (tab.dataset.racaoTab === 'racaoPanelHistorico') loadHistoricoLotes();
   if (tab.dataset.racaoTab === 'racaoPanelPhaseFeeding') { renderPhaseFeeding(); renderPhaseSimulation(); }
 }));
+
+document.getElementById('historicoLotesForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  loadHistoricoLotes();
+});
 
 document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); });
 document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); renderProjecao(); });
@@ -871,6 +886,7 @@ function openProjecaoPedidoModal() {
   document.getElementById('projecaoPedidoData').value = '';
   document.getElementById('projecaoPedidoFase').value = '';
   document.getElementById('projecaoPedidoQuantidade').value = '';
+  document.getElementById('projecaoPedidoObservacao').value = '';
   document.getElementById('projecaoPedidoFormError').textContent = '';
 }
 
@@ -891,13 +907,14 @@ document.getElementById('projecaoPedidoForm').addEventListener('submit', async (
   const data = document.getElementById('projecaoPedidoData').value;
   const fase = document.getElementById('projecaoPedidoFase').value;
   const quantidade = Number(document.getElementById('projecaoPedidoQuantidade').value);
+  const observacao = document.getElementById('projecaoPedidoObservacao').value.trim();
   const error = document.getElementById('projecaoPedidoFormError');
   if (!farm) { error.textContent = 'Selecione um integrado na projeção.'; return; }
   if (getGalpoesByFarm(farm.name).length && !galpao) { error.textContent = 'Selecione o galpão.'; return; }
   if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
   if (!fase) { error.textContent = 'Informe o tipo de ração.'; return; }
   if (!Number.isFinite(quantidade) || quantidade <= 0) { error.textContent = 'Informe uma quantidade de ração válida.'; return; }
-  const { data: inserted, error: insertError } = await supabaseClient.from('pedidos_racao').insert({ integrado_nome: farm.name, galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: null }).select().single();
+  const { data: inserted, error: insertError } = await supabaseClient.from('pedidos_racao').insert({ integrado_nome: farm.name, galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: observacao || null }).select().single();
   if (insertError) {
     console.error('Erro ao agendar carga de ração:', insertError);
     error.textContent = `Não foi possível agendar a carga. Detalhes: ${insertError.message}`;
@@ -973,20 +990,29 @@ document.getElementById('calcularCadastro').addEventListener('click', async () =
   if (rows.some((row) => !Number.isFinite(row.animais) || row.animais < 0)) { error.textContent = 'Informe um número válido de animais em cada galpão.'; return; }
   const animals = rows.reduce((total, row) => total + row.animais, 0);
   const namedRows = rows.filter((row) => row.nome && !isTpLabel(row.nome));
+  const temLoteAtivo = (farm.animals || 0) > 0
+    || getGalpoesByFarm(farm.name).length > 0
+    || pedidos.some((pedido) => pedido.integrado_nome === farm.name);
+  if (temLoteAtivo && !window.confirm(`O integrado ${farm.name} já possui um lote ativo. Deseja concluí-lo e arquivá-lo no Histórico para iniciar um novo ciclo? Os pedidos e galpões atuais serão substituídos.`)) return;
+
   error.textContent = '';
   renderFeedProjection(animals);
-  const { error: deleteError } = await supabaseClient.from('galpoes_racao').delete().eq('integrado_nome', farm.name);
-  if (deleteError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${deleteError.message}`; return; }
-  const { data: inserted, error: insertError } = namedRows.length
-    ? await supabaseClient.from('galpoes_racao').insert(namedRows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais }))).select()
-    : { data: [], error: null };
-  if (insertError) { error.textContent = `Não foi possível salvar os galpões. Detalhes: ${insertError.message}`; return; }
-  galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(inserted || []);
-  const { error: updateError } = await supabaseClient.from('integrados').update({ animais_alojados: animals }).eq('nome', farm.name);
-  if (updateError) { error.textContent = 'Projeção calculada, mas não foi possível salvar o total do lote.'; return; }
+  const { error: startLotError } = await supabaseClient.rpc('iniciar_novo_lote_racao', {
+    p_integrado_nome: farm.name,
+    p_animais_alojados: animals,
+    p_galpoes: namedRows.map((row) => ({ nome_galpao: row.nome, animais_alojados: row.animais })),
+    p_fases_racao: FEED_PHASES.map(({ label, sigla, kgPorAnimal }) => ({ label, sigla, kgPorAnimal }))
+  });
+  if (startLotError) { error.textContent = `Não foi possível iniciar o novo ciclo. Detalhes: ${startLotError.message}`; return; }
+
+  galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(namedRows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais })));
+  pedidos = pedidos.filter((pedido) => pedido.integrado_nome !== farm.name);
   farm.animals = animals;
+  renderPedidosTable();
+  renderRelatorioPedidos();
   renderRacaoTable();
   renderProjecaoOptions();
+  renderProjecao();
 });
 
 function populateGalpaoSelect(select, farmName, selectedValue = '') {
@@ -997,10 +1023,45 @@ function populateGalpaoSelect(select, farmName, selectedValue = '') {
   select.value = selectedValue;
 }
 
+function renderPedidoPhaseFeeding() {
+  const preview = document.getElementById('pedidoPhasePreview');
+  const farmInput = document.getElementById('pedidoIntegrado');
+  const select = document.getElementById('pedidoPhaseGalpao');
+  const farm = findFarm(farmInput.value.trim());
+  const farmGalpoes = getGalpoesByFarm(farm?.name || '');
+  if (!farm) {
+    preview.hidden = true;
+    select.dataset.farmName = '';
+    return;
+  }
+
+  const selectedGalpao = select.dataset.farmName === farm.name ? select.value : '';
+  select.innerHTML = '<option value="">Todos os galpões (total)</option>' + farmGalpoes.map((galpao) => `<option value="${escapeHtml(galpao.nome_galpao)}">${escapeHtml(galpao.nome_galpao)}</option>`).join('');
+  select.value = selectedGalpao;
+  select.dataset.farmName = farm.name;
+
+  const galpao = farmGalpoes.find((item) => item.nome_galpao === select.value);
+  const animals = galpao ? Number(galpao.animais_alojados) || 0 : Number(farm.animals) || 0;
+  const farmPedidos = pedidos.filter((pedido) => pedido.integrado_nome === farm.name && (!galpao || pedido.galpao === galpao.nome_galpao));
+  const [, ...phases] = FEED_PHASES;
+  document.getElementById('pedidoPhaseSummary').textContent = `${galpao ? galpao.nome_galpao : 'Todos os galpões'} · ${animals.toLocaleString('pt-BR')} animais`;
+  document.getElementById('pedidoPhaseBody').innerHTML = phases.map((phase) => {
+    const total = animals * phase.kgPorAnimal;
+    const programado = farmPedidos.filter((pedido) => pedido.fase === phase.sigla).reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
+    const saldo = Math.max(0, total - programado);
+    return `<tr><td>${escapeHtml(phase.sigla)}</td><td>${total.toLocaleString('pt-BR')} kg</td><td>${programado.toLocaleString('pt-BR')} kg</td><td>${saldo.toLocaleString('pt-BR')} kg</td></tr>`;
+  }).join('');
+  const [rscaPhase] = FEED_PHASES;
+  document.getElementById('pedidoPhaseNote').textContent = `${rscaPhase.sigla}: ${(animals * rscaPhase.kgPorAnimal).toLocaleString('pt-BR')} kg informativos; alojamento controlado por outro sistema.`;
+  preview.hidden = false;
+}
+
 document.getElementById('pedidoIntegrado').addEventListener('input', (event) => {
   const farm = findFarm(event.target.value);
   populateGalpaoSelect(document.getElementById('pedidoGalpao'), farm?.name || '');
+  renderPedidoPhaseFeeding();
 });
+document.getElementById('pedidoPhaseGalpao').addEventListener('change', renderPedidoPhaseFeeding);
 
 document.getElementById('addPedido').addEventListener('click', async () => {
   const name = document.getElementById('pedidoIntegrado').value.trim();
@@ -1027,6 +1088,7 @@ document.getElementById('addPedido').addEventListener('click', async () => {
   pedidos.unshift(inserted);
   document.getElementById('pedidoIntegrado').value = '';
   populateGalpaoSelect(document.getElementById('pedidoGalpao'), '');
+  renderPedidoPhaseFeeding();
   document.getElementById('pedidoData').value = '';
   document.getElementById('pedidoFase').value = '';
   document.getElementById('pedidoQuantidade').value = '';
@@ -1035,7 +1097,7 @@ document.getElementById('addPedido').addEventListener('click', async () => {
   renderProjecao();
 });
 
-document.getElementById('projecaoPedidosBody').addEventListener('click', async (event) => {
+document.getElementById('projecaoPedidosPlanejadosBody').addEventListener('click', async (event) => {
   const editButton = event.target.closest('.edit-pedido');
   if (editButton) {
     const pedido = pedidos.find((item) => String(item.id) === editButton.dataset.id);

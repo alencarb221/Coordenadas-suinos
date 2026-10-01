@@ -1013,14 +1013,17 @@ h2 {
   gap: 8px;
   margin-top: 28px;
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
 }
 .subnav-tab {
+  flex: 0 0 auto;
   padding: 10px 16px;
   border: 0;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
   border-bottom: 2px solid transparent;
 }
@@ -1245,6 +1248,51 @@ h2 {
   max-width: 520px;
   margin-top: 24px;
 }
+.pedido-phase-preview {
+  margin: 18px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.pedido-phase-preview .field-label {
+  margin-bottom: 8px;
+}
+.pedido-phase-summary,
+.pedido-phase-note {
+  margin: 10px 0 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pedido-phase-note {
+  margin-bottom: 0;
+  font-size: 10px;
+}
+.pedido-phase-table-wrap {
+  overflow-x: auto;
+}
+.pedido-phase-preview table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.pedido-phase-preview th,
+.pedido-phase-preview td {
+  padding: 7px 3px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+.pedido-phase-preview th:first-child,
+.pedido-phase-preview td:first-child {
+  width: 18%;
+  text-align: left;
+}
+.pedido-phase-preview th {
+  color: var(--muted);
+  font-weight: 700;
+}
 .phase-feeding-panel,
 .phase-simulation-panel {
   max-width: 760px;
@@ -1348,6 +1396,24 @@ h2 {
   margin: 3px 0 0;
   font-size: 17px;
 }
+.projecao-planejadas-heading {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.projecao-planejadas-heading h2 {
+  font-size: 15px;
+}
+.projecao-agendadas-heading {
+  margin-top: 0;
+  border-top: 1px solid var(--line);
+}
+.projecao-sugestoes-heading {
+  margin-top: 0;
+  border-top: 1px solid var(--line);
+}
+.projecao-planejadas-info {
+  margin: 12px 17px;
+}
 .projecao-cargas .table-wrap {
   border: 0;
   border-radius: 0;
@@ -1355,7 +1421,32 @@ h2 {
   overflow: auto;
 }
 .projecao-cargas table {
-  min-width: 520px;
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.projecao-cargas .projecao-agendadas-table {
+  min-width: 0;
+}
+.projecao-agendadas-table th,
+.projecao-agendadas-table td {
+  padding: 9px 5px;
+  font-size: 9px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.projecao-agendadas-table th:nth-child(1) { width: 22%; }
+.projecao-agendadas-table th:nth-child(2) { width: 18%; }
+.projecao-agendadas-table th:nth-child(3) { width: 12%; }
+.projecao-agendadas-table th:nth-child(4) { width: 20%; }
+.projecao-agendadas-table th:nth-child(5) { width: 28%; }
+.projecao-agendadas-table .table-actions {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.projecao-agendadas-table .table-action {
+  padding: 5px;
+  font-size: 9px;
 }
 .chart-legend {
   display: flex;
@@ -1501,6 +1592,25 @@ h2 {
 .integrated-table-wrap table {
   min-width: 940px;
 }
+.historico-toolbar .search-control {
+  flex: 1;
+}
+.historico-table-wrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.historico-table-wrap th,
+.historico-table-wrap td {
+  padding: 10px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.historico-table-wrap th:nth-child(1) { width: 26%; }
+.historico-table-wrap th:nth-child(2) { width: 18%; }
+.historico-table-wrap th:nth-child(3) { width: 24%; }
+.historico-table-wrap th:nth-child(4) { width: 14%; }
+.historico-table-wrap th:nth-child(5) { width: 18%; }
 .integrated-table-wrap td {
   color: #536866;
 }
