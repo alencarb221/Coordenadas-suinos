@@ -1410,9 +1410,73 @@ h2 {
 .projecao-sugestoes-heading {
   margin-top: 0;
   border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.projecao-capacidade-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.projecao-capacidade-control input {
+  width: 104px;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
 }
 .projecao-planejadas-info {
   margin: 12px 17px;
+}
+.projecao-cargas-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.projecao-cargas-actions .primary-button {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 12px;
+}
+.projecao-cargas-modal {
+  width: min(1120px, 96vw);
+  max-height: 94vh;
+  padding: 18px;
+  overflow-y: auto;
+}
+.projecao-cargas-modal .table-wrap {
+  max-height: none;
+  margin-top: 0;
+}
+.projecao-cargas-modal .modal-header {
+  margin-bottom: 10px;
+}
+.projecao-cargas-modal .projecao-cargas-heading {
+  min-height: 0;
+  padding: 9px 12px;
+}
+.projecao-cargas-modal .projecao-cargas-heading h2 {
+  font-size: 14px;
+}
+.projecao-cargas-modal th,
+.projecao-cargas-modal td {
+  padding: 6px 9px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.projecao-modal-section + .projecao-modal-section {
+  margin-top: 12px;
+}
+.projecao-cargas-modal-resumo {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 .projecao-cargas .table-wrap {
   border: 0;
@@ -1606,11 +1670,23 @@ h2 {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.historico-table-wrap th:nth-child(1) { width: 26%; }
-.historico-table-wrap th:nth-child(2) { width: 18%; }
-.historico-table-wrap th:nth-child(3) { width: 24%; }
+.historico-table-wrap th:nth-child(1) { width: 21%; }
+.historico-table-wrap th:nth-child(2) { width: 14%; }
+.historico-table-wrap th:nth-child(3) { width: 12%; }
 .historico-table-wrap th:nth-child(4) { width: 14%; }
-.historico-table-wrap th:nth-child(5) { width: 18%; }
+.historico-table-wrap th:nth-child(5) { width: 9%; }
+.historico-table-wrap th:nth-child(6) { width: 12%; }
+.historico-table-wrap th:nth-child(7) { width: 18%; }
+.historico-table-wrap .table-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+.historico-table-wrap .table-action {
+  flex: 0 0 auto;
+  padding: 6px 7px;
+  white-space: nowrap;
+}
 .integrated-table-wrap td {
   color: #536866;
 }
@@ -1683,6 +1759,21 @@ h2 {
   width: min(820px, 96vw);
   max-height: 90vh;
   overflow-y: auto;
+}
+.historico-lote-modal {
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  padding: 20px;
+  overflow-y: auto;
+}
+.historico-lote-modal .table-wrap {
+  max-height: 55vh;
+}
+.historico-lote-resumo {
+  margin: -8px 0 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .racao-detalhe-metric {
   margin-top: 0;

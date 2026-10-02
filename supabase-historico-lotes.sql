@@ -24,6 +24,16 @@ create policy historico_lotes_racao_authenticated_read
 
 grant select on public.historico_lotes_racao to authenticated;
 
+drop policy if exists historico_lotes_racao_authenticated_delete
+  on public.historico_lotes_racao;
+create policy historico_lotes_racao_authenticated_delete
+  on public.historico_lotes_racao
+  for delete
+  to authenticated
+  using (true);
+
+grant delete on public.historico_lotes_racao to authenticated;
+
 create or replace function public.iniciar_novo_lote_racao(
   p_integrado_nome text,
   p_animais_alojados integer,

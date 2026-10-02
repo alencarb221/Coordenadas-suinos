@@ -36,15 +36,22 @@ const DEFAULT_FEED_PHASES = [
   { label: 'RS Terminação 2', sigla: 'RST-2', kgPorAnimal: 35 },
   { label: 'RS Terminação 3', sigla: 'RST-3', kgPorAnimal: 65 },
 ];
-const MAX_TRUCK_LOAD_KG = 18000;
+const DEFAULT_MAX_TRUCK_LOAD_KG = 18000;
+const LEGACY_MAX_TRUCK_LOAD_STORAGE_KEY = 'coordenadas-suinos-max-truck-load-kg';
+const LEGACY_MAX_TRUCK_LOADS_BY_FARM_STORAGE_KEY = 'coordenadas-suinos-max-truck-loads-by-farm';
+const MAX_TRUCK_LOADS_BY_SCOPE_STORAGE_KEY = 'coordenadas-suinos-max-truck-loads-by-scope';
 const FEED_PHASES_STORAGE_KEY = 'coordenadas-suinos-phase-feeding';
 let FEED_PHASES = loadFeedPhases();
 let FEED_CYCLE_KG_POR_ANIMAL = getFeedCycleKgPerAnimal();
+let maxTruckLoadsByScope = loadMaxTruckLoadsByScope();
+let legacyMaxTruckLoadKg = loadLegacyMaxTruckLoadKg();
+let maxTruckLoadKg = DEFAULT_MAX_TRUCK_LOAD_KG;
 let baseFarms = [];
 let farmRefreshQueued = false;
 let pedidos = [];
 let galpoes = [];
 let historicoLotesRequestId = 0;
+let historicoLotes = [];
 let ocupacaoViagens = [];
 let manualPointSelection = null;
 const manualPointColors = {
@@ -66,6 +73,74 @@ function loadFeedPhases() {
     console.warn('Não foi possível carregar a configuração de Phase Feeding.', error);
   }
   return DEFAULT_FEED_PHASES.map((phase) => ({ ...phase }));
+}
+
+function getMaxTruckLoadScopeKey(farmName, galpaoName = '') {
+  return JSON.stringify([farmName, galpaoName || '']);
+}
+
+function loadMaxTruckLoadsByScope() {
+  try {
+    const savedByScope = JSON.parse(localStorage.getItem(MAX_TRUCK_LOADS_BY_SCOPE_STORAGE_KEY) || '{}');
+    const savedByFarm = JSON.parse(localStorage.getItem(LEGACY_MAX_TRUCK_LOADS_BY_FARM_STORAGE_KEY) || '{}');
+    const capacities = {};
+    [savedByScope, savedByFarm].forEach((saved) => {
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return;
+      Object.entries(saved).forEach(([key, value]) => {
+        if (!Number.isSafeInteger(value) || value <= 0) return;
+        let scopeKey;
+        try {
+          const parsed = JSON.parse(key);
+          scopeKey = Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string'
+            ? getMaxTruckLoadScopeKey(parsed[0], parsed[1])
+            : getMaxTruckLoadScopeKey(key);
+        } catch {
+          scopeKey = getMaxTruckLoadScopeKey(key);
+        }
+        if (!(scopeKey in capacities)) capacities[scopeKey] = value;
+      });
+    });
+    return capacities;
+  } catch (error) {
+    console.warn('Não foi possível carregar as capacidades configuradas por integrado e galpão.', error);
+    return {};
+  }
+}
+
+function loadLegacyMaxTruckLoadKg() {
+  try {
+    const saved = Number(localStorage.getItem(LEGACY_MAX_TRUCK_LOAD_STORAGE_KEY));
+    if (Number.isSafeInteger(saved) && saved > 0) return saved;
+  } catch (error) {
+    console.warn('Não foi possível migrar a capacidade configurada anteriormente.', error);
+  }
+  return null;
+}
+
+function saveMaxTruckLoadsByScope() {
+  try {
+    localStorage.setItem(MAX_TRUCK_LOADS_BY_SCOPE_STORAGE_KEY, JSON.stringify(maxTruckLoadsByScope));
+    localStorage.removeItem(LEGACY_MAX_TRUCK_LOADS_BY_FARM_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_MAX_TRUCK_LOAD_STORAGE_KEY);
+    legacyMaxTruckLoadKg = null;
+  } catch (error) {
+    console.warn('Não foi possível salvar as capacidades configuradas por integrado e galpão.', error);
+  }
+}
+
+function getMaxTruckLoadForScope(farmName, galpaoName = '') {
+  if (!farmName) return DEFAULT_MAX_TRUCK_LOAD_KG;
+  const scopeKey = getMaxTruckLoadScopeKey(farmName, galpaoName);
+  const saved = maxTruckLoadsByScope[scopeKey];
+  if (Number.isSafeInteger(saved) && saved > 0) return saved;
+  if (legacyMaxTruckLoadKg) {
+    const farmScopeKey = getMaxTruckLoadScopeKey(farmName);
+    if (!(farmScopeKey in maxTruckLoadsByScope)) maxTruckLoadsByScope[farmScopeKey] = legacyMaxTruckLoadKg;
+    const migrated = legacyMaxTruckLoadKg;
+    saveMaxTruckLoadsByScope();
+    if (!galpaoName) return migrated;
+  }
+  return DEFAULT_MAX_TRUCK_LOAD_KG;
 }
 
 function getFeedCycleKgPerAnimal() {
@@ -622,31 +697,54 @@ function renderProjecaoCargasPlanejadas(phaseData, farmPedidos) {
   const pedidosBody = document.getElementById('projecaoPedidosPlanejadosBody');
   const pedidosTotal = document.getElementById('projecaoPedidosTotal');
   const total = document.getElementById('projecaoCargasPlanejadasTotal');
+  const modalBody = document.getElementById('projecaoCargasModalBody');
+  const modalPedidosBody = document.getElementById('projecaoPedidosModalBody');
+  const modalPedidosTotal = document.getElementById('projecaoPedidosModalTotal');
+  const modalTotal = document.getElementById('projecaoCargasModalTotal');
+  const modalInfo = document.getElementById('projecaoCargasModalInfo');
+  const visualizarButton = document.getElementById('openProjecaoCargasModal');
   const info = document.getElementById('projecaoCargasPlanejadasInfo');
   if (!body) return;
+  if (visualizarButton) visualizarButton.disabled = !phaseData.length;
   if (pedidosTotal) pedidosTotal.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
+  if (modalPedidosTotal) modalPedidosTotal.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
   if (pedidosBody) {
     pedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || `<tr><td colspan="5">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
+  }
+  if (modalPedidosBody) {
+    modalPedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td></tr>`).join('') || `<tr><td colspan="4">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
   }
   if (!phaseData.length) {
     body.innerHTML = '<tr><td colspan="3">Selecione um integrado.</td></tr>';
     if (total) total.textContent = '0 cargas · 0 kg';
+    if (modalBody) modalBody.innerHTML = '<tr><td colspan="3">Selecione um integrado.</td></tr>';
+    if (modalTotal) modalTotal.textContent = '0 cargas · 0 kg';
     if (info) info.textContent = '';
+    if (modalInfo) modalInfo.textContent = '';
     return;
   }
   const cargas = [];
-  phaseData.forEach((phase) => {
+  const faseMaisAvancadaProgramada = farmPedidos.reduce((maisAvancada, pedido) => {
+    return Math.max(maisAvancada, phaseData.findIndex((phase) => phase.sigla === pedido.fase));
+  }, -1);
+  phaseData.forEach((phase, index) => {
+    if (index < faseMaisAvancadaProgramada) return;
     let restante = Math.max(0, Number(phase.falta) || 0);
     while (restante > 0) {
-      const quantidade = Math.min(MAX_TRUCK_LOAD_KG, restante);
+      const quantidade = Math.min(maxTruckLoadKg, restante);
       cargas.push({ fase: phase.sigla, quantidade });
       restante = Math.round((restante - quantidade) * 100) / 100;
     }
   });
   const totalKg = cargas.reduce((sum, carga) => sum + carga.quantidade, 0);
   if (total) total.textContent = `${cargas.length} carga${cargas.length === 1 ? '' : 's'} · ${totalKg.toLocaleString('pt-BR')} kg`;
-  body.innerHTML = cargas.map((carga, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(carga.fase)}</td><td>${carga.quantidade.toLocaleString('pt-BR')} kg</td></tr>`).join('') || '<tr><td colspan="3">Todas as fases já estão totalmente programadas.</td></tr>';
-  if (info) info.textContent = 'Sugestões calculadas pelo saldo de cada fase. Ao agendar uma carga, o saldo e esta lista são atualizados; estas sugestões não são gravadas até serem agendadas.';
+  if (modalTotal) modalTotal.textContent = `${cargas.length} carga${cargas.length === 1 ? '' : 's'} · ${totalKg.toLocaleString('pt-BR')} kg`;
+  const cargasHtml = cargas.map((carga, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(carga.fase)}</td><td>${carga.quantidade.toLocaleString('pt-BR')} kg</td></tr>`).join('') || '<tr><td colspan="3">Todas as fases já estão totalmente programadas.</td></tr>';
+  body.innerHTML = cargasHtml;
+  if (modalBody) modalBody.innerHTML = cargasHtml;
+  const textoInfo = 'Sugestões calculadas pelo saldo de cada fase. Ao agendar uma carga, o saldo e esta lista são atualizados; estas sugestões não são gravadas até serem agendadas.';
+  if (info) info.textContent = textoInfo;
+  if (modalInfo) modalInfo.textContent = textoInfo;
 }
 
 function compareFeedOrders(first, second) {
@@ -662,15 +760,7 @@ async function loadPedidos() {
   const { data, error } = await supabaseClient.from('pedidos_racao').select('id, integrado_nome, galpao, data_entrega, quantidade_kg, fase, observacao').order('data_entrega', { ascending: false });
   if (error) { console.error('Erro ao carregar pedidos de ração:', error); return; }
   pedidos = (data || []).map((pedido) => ({ ...pedido, galpao: isTpLabel(pedido.galpao) ? null : pedido.galpao }));
-  renderPedidosTable();
   renderRelatorioPedidos();
-}
-
-function renderPedidosTable() {
-  const body = document.getElementById('pedidosTableBody');
-  if (!body) return;
-  document.getElementById('pedidosTotal').textContent = `${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'}`;
-  body.innerHTML = pedidos.map((pedido) => `<tr><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido registrado ainda.</td></tr>';
 }
 
 async function loadHistoricoLotes() {
@@ -697,12 +787,43 @@ async function loadHistoricoLotes() {
   }
 
   const lotes = data || [];
+  historicoLotes = lotes;
   total.textContent = `${lotes.length} lote${lotes.length === 1 ? '' : 's'} concluído${lotes.length === 1 ? '' : 's'}${lotes.length === 100 ? ' (mostrando os 100 mais recentes)' : ''}`;
   body.innerHTML = lotes.map((lote) => {
-    const dataConclusao = lote.concluido_em ? new Date(lote.concluido_em).toLocaleString('pt-BR') : '—';
-    const cargas = Array.isArray(lote.pedidos) ? lote.pedidos.length : 0;
-    return `<tr><td>${escapeHtml(lote.integrado_nome)}</td><td>${escapeHtml(lote.cidade || '—')}</td><td>${dataConclusao}</td><td>${Number(lote.animais_alojados || 0).toLocaleString('pt-BR')}</td><td>${cargas}</td></tr>`;
-  }).join('') || '<tr><td colspan="5">Nenhum lote concluído encontrado.</td></tr>';
+    const cargas = Array.isArray(lote.pedidos) ? lote.pedidos : [];
+    const dataInicio = cargas.map((pedido) => pedido.data_entrega).filter(Boolean).sort()[0];
+    const dataConclusao = String(lote.concluido_em || '').slice(0, 10);
+    return `<tr><td>${escapeHtml(lote.integrado_nome)}</td><td>${escapeHtml(lote.cidade || '—')}</td><td>${formatDateBr(dataInicio)}</td><td>${formatDateBr(dataConclusao)}</td><td>${Number(lote.animais_alojados || 0).toLocaleString('pt-BR')}</td><td>${cargas.length}</td><td><div class="table-actions"><button class="table-action" type="button" data-historico-acao="visualizar" data-lote-id="${escapeHtml(lote.id)}">Visualizar</button><button class="table-action delete-integrated" type="button" data-historico-acao="excluir" data-lote-id="${escapeHtml(lote.id)}">Excluir</button></div></td></tr>`;
+  }).join('') || '<tr><td colspan="7">Nenhum lote concluído encontrado.</td></tr>';
+}
+
+function openHistoricoLote(lote) {
+  const cargas = Array.isArray(lote.pedidos) ? [...lote.pedidos] : [];
+  cargas.sort((first, second) => String(first.data_entrega || '').localeCompare(String(second.data_entrega || '')));
+  const dataInicio = cargas.map((pedido) => pedido.data_entrega).filter(Boolean).sort()[0];
+  const dataConclusao = String(lote.concluido_em || '').slice(0, 10);
+  document.getElementById('historicoLoteResumo').textContent = `${lote.integrado_nome} · ${lote.cidade || 'Cidade não informada'} · Início: ${formatDateBr(dataInicio)} · Conclusão: ${formatDateBr(dataConclusao)}`;
+  document.getElementById('historicoLotePedidosBody').innerHTML = cargas.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg || 0).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="5">Este lote não possui cargas arquivadas.</td></tr>';
+  document.getElementById('historicoLoteModal').hidden = false;
+}
+
+function closeHistoricoLote() {
+  document.getElementById('historicoLoteModal').hidden = true;
+}
+
+async function deleteHistoricoLote(lote) {
+  if (!window.confirm(`Excluir somente o registro histórico do lote de ${lote.integrado_nome}? O integrado e o lote atual não serão alterados.`)) return;
+  const { data: excluidos, error } = await supabaseClient.from('historico_lotes_racao').delete().eq('id', lote.id).select('id');
+  if (error) {
+    console.error('Erro ao excluir registro do histórico:', error);
+    window.alert(`Não foi possível excluir o registro do histórico. Detalhes: ${error.message}`);
+    return;
+  }
+  if (!excluidos?.length) {
+    window.alert('Nenhum registro foi excluído. No Supabase, habilite a política RLS de DELETE para a tabela historico_lotes_racao.');
+    return;
+  }
+  loadHistoricoLotes();
 }
 
 function openPedidoModal(pedido) {
@@ -860,7 +981,6 @@ document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('
   document.querySelectorAll('.subnav-tab').forEach((item) => item.classList.toggle('active', item === tab));
   document.querySelectorAll('.racao-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.racaoTab; });
   if (tab.dataset.racaoTab === 'racaoPanelProjecao') { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); }
-  if (tab.dataset.racaoTab === 'racaoPanelProgramacao') renderPedidosTable();
   if (tab.dataset.racaoTab === 'racaoPanelRelatorio') renderRelatorioPedidos();
   if (tab.dataset.racaoTab === 'racaoPanelHistorico') loadHistoricoLotes();
   if (tab.dataset.racaoTab === 'racaoPanelPhaseFeeding') { renderPhaseFeeding(); renderPhaseSimulation(); }
@@ -870,10 +990,64 @@ document.getElementById('historicoLotesForm').addEventListener('submit', (event)
   event.preventDefault();
   loadHistoricoLotes();
 });
+document.getElementById('historicoLotesBody').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-historico-acao]');
+  if (!button) return;
+  const lote = historicoLotes.find((item) => String(item.id) === button.dataset.loteId);
+  if (!lote) return;
+  if (button.dataset.historicoAcao === 'visualizar') openHistoricoLote(lote);
+  if (button.dataset.historicoAcao === 'excluir') deleteHistoricoLote(lote);
+});
+document.getElementById('closeHistoricoLoteModal').addEventListener('click', closeHistoricoLote);
+document.getElementById('historicoLoteModal').addEventListener('click', (event) => {
+  if (event.target.id === 'historicoLoteModal') closeHistoricoLote();
+});
 
-document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); });
-document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); renderProjecao(); });
-document.getElementById('projecaoGalpaoSelect').addEventListener('change', renderProjecao);
+document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); syncMaxTruckLoadForSelectedFarm(); renderProjecao(); });
+document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); syncMaxTruckLoadForSelectedFarm(); renderProjecao(); });
+document.getElementById('projecaoGalpaoSelect').addEventListener('change', () => { syncMaxTruckLoadForSelectedFarm(); renderProjecao(); });
+const maxTruckLoadInput = document.getElementById('projecaoMaxCargaKg');
+maxTruckLoadInput.value = String(maxTruckLoadKg);
+maxTruckLoadInput.disabled = true;
+function syncMaxTruckLoadForSelectedFarm() {
+  const farmName = getProjecaoFarmName();
+  const galpaoName = document.getElementById('projecaoGalpaoSelect').value;
+  maxTruckLoadKg = getMaxTruckLoadForScope(farmName, galpaoName);
+  maxTruckLoadInput.value = String(maxTruckLoadKg);
+  maxTruckLoadInput.disabled = !farmName;
+}
+maxTruckLoadInput.addEventListener('change', () => {
+  const value = Number(maxTruckLoadInput.value);
+  const farmName = getProjecaoFarmName();
+  if (!farmName || !Number.isSafeInteger(value) || value <= 0) {
+    maxTruckLoadInput.value = String(maxTruckLoadKg);
+    return;
+  }
+  maxTruckLoadKg = value;
+  const galpaoName = document.getElementById('projecaoGalpaoSelect').value;
+  maxTruckLoadsByScope[getMaxTruckLoadScopeKey(farmName, galpaoName)] = value;
+  saveMaxTruckLoadsByScope();
+  renderProjecao();
+});
+
+function openProjecaoCargasModal() {
+  const farmName = getProjecaoFarmName();
+  const farm = farms.find((item) => item.name === farmName);
+  if (!farm) return;
+  const galpao = document.getElementById('projecaoGalpaoSelect').value;
+  document.getElementById('projecaoCargasModalResumo').textContent = `${farm.name} · ${galpao || 'Todos os galpões'} · Máx. ${maxTruckLoadKg.toLocaleString('pt-BR')} kg por carga`;
+  document.getElementById('projecaoCargasModal').hidden = false;
+}
+
+function closeProjecaoCargasModal() {
+  document.getElementById('projecaoCargasModal').hidden = true;
+}
+
+document.getElementById('openProjecaoCargasModal').addEventListener('click', openProjecaoCargasModal);
+document.getElementById('closeProjecaoCargasModal').addEventListener('click', closeProjecaoCargasModal);
+document.getElementById('projecaoCargasModal').addEventListener('click', (event) => {
+  if (event.target.id === 'projecaoCargasModal') closeProjecaoCargasModal();
+});
 
 function openProjecaoPedidoModal() {
   const farmName = getProjecaoFarmName();
@@ -921,7 +1095,6 @@ document.getElementById('projecaoPedidoForm').addEventListener('submit', async (
     return;
   }
   pedidos.unshift(inserted);
-  renderPedidosTable();
   renderRelatorioPedidos();
   renderProjecao();
   closeProjecaoPedidoModal();
@@ -1008,7 +1181,6 @@ document.getElementById('calcularCadastro').addEventListener('click', async () =
   galpoes = galpoes.filter((galpao) => galpao.integrado_nome !== farm.name).concat(namedRows.map((row) => ({ integrado_nome: farm.name, nome_galpao: row.nome, animais_alojados: row.animais })));
   pedidos = pedidos.filter((pedido) => pedido.integrado_nome !== farm.name);
   farm.animals = animals;
-  renderPedidosTable();
   renderRelatorioPedidos();
   renderRacaoTable();
   renderProjecaoOptions();
@@ -1022,80 +1194,6 @@ function populateGalpaoSelect(select, farmName, selectedValue = '') {
     : '<option value="">Sem galpão cadastrado</option>';
   select.value = selectedValue;
 }
-
-function renderPedidoPhaseFeeding() {
-  const preview = document.getElementById('pedidoPhasePreview');
-  const farmInput = document.getElementById('pedidoIntegrado');
-  const select = document.getElementById('pedidoPhaseGalpao');
-  const farm = findFarm(farmInput.value.trim());
-  const farmGalpoes = getGalpoesByFarm(farm?.name || '');
-  if (!farm) {
-    preview.hidden = true;
-    select.dataset.farmName = '';
-    return;
-  }
-
-  const selectedGalpao = select.dataset.farmName === farm.name ? select.value : '';
-  select.innerHTML = '<option value="">Todos os galpões (total)</option>' + farmGalpoes.map((galpao) => `<option value="${escapeHtml(galpao.nome_galpao)}">${escapeHtml(galpao.nome_galpao)}</option>`).join('');
-  select.value = selectedGalpao;
-  select.dataset.farmName = farm.name;
-
-  const galpao = farmGalpoes.find((item) => item.nome_galpao === select.value);
-  const animals = galpao ? Number(galpao.animais_alojados) || 0 : Number(farm.animals) || 0;
-  const farmPedidos = pedidos.filter((pedido) => pedido.integrado_nome === farm.name && (!galpao || pedido.galpao === galpao.nome_galpao));
-  const [, ...phases] = FEED_PHASES;
-  document.getElementById('pedidoPhaseSummary').textContent = `${galpao ? galpao.nome_galpao : 'Todos os galpões'} · ${animals.toLocaleString('pt-BR')} animais`;
-  document.getElementById('pedidoPhaseBody').innerHTML = phases.map((phase) => {
-    const total = animals * phase.kgPorAnimal;
-    const programado = farmPedidos.filter((pedido) => pedido.fase === phase.sigla).reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
-    const saldo = Math.max(0, total - programado);
-    return `<tr><td>${escapeHtml(phase.sigla)}</td><td>${total.toLocaleString('pt-BR')} kg</td><td>${programado.toLocaleString('pt-BR')} kg</td><td>${saldo.toLocaleString('pt-BR')} kg</td></tr>`;
-  }).join('');
-  const [rscaPhase] = FEED_PHASES;
-  document.getElementById('pedidoPhaseNote').textContent = `${rscaPhase.sigla}: ${(animals * rscaPhase.kgPorAnimal).toLocaleString('pt-BR')} kg informativos; alojamento controlado por outro sistema.`;
-  preview.hidden = false;
-}
-
-document.getElementById('pedidoIntegrado').addEventListener('input', (event) => {
-  const farm = findFarm(event.target.value);
-  populateGalpaoSelect(document.getElementById('pedidoGalpao'), farm?.name || '');
-  renderPedidoPhaseFeeding();
-});
-document.getElementById('pedidoPhaseGalpao').addEventListener('change', renderPedidoPhaseFeeding);
-
-document.getElementById('addPedido').addEventListener('click', async () => {
-  const name = document.getElementById('pedidoIntegrado').value.trim();
-  const galpao = document.getElementById('pedidoGalpao').value;
-  const data = document.getElementById('pedidoData').value;
-  const fase = document.getElementById('pedidoFase').value;
-  const quantidade = Number(document.getElementById('pedidoQuantidade').value);
-  const observacao = document.getElementById('pedidoObservacao').value.trim();
-  const error = document.getElementById('pedidoFormError');
-  const farm = findFarm(name);
-  if (!farm) { error.textContent = 'Integrado não encontrado. Verifique o nome digitado.'; return; }
-  if (!(farm.animals > 0)) { error.textContent = 'Este integrado ainda não está cadastrado na aba Cadastro.'; return; }
-  if (getGalpoesByFarm(farm.name).length && !galpao) { error.textContent = 'Selecione o galpão.'; return; }
-  if (!data) { error.textContent = 'Informe a data da entrega.'; return; }
-  if (!fase) { error.textContent = 'Informe o tipo de ração.'; return; }
-  if (!Number.isFinite(quantidade) || quantidade <= 0) { error.textContent = 'Informe uma quantidade de ração válida.'; return; }
-  const { data: inserted, error: insertError } = await supabaseClient.from('pedidos_racao').insert({ integrado_nome: farm.name, galpao: galpao || null, data_entrega: data, fase, quantidade_kg: quantidade, observacao: observacao || null }).select().single();
-  if (insertError) {
-    console.error('Erro ao salvar pedido de ração:', insertError);
-    error.textContent = `Não foi possível salvar o pedido. Detalhes: ${insertError.message}`;
-    return;
-  }
-  error.textContent = '';
-  pedidos.unshift(inserted);
-  document.getElementById('pedidoIntegrado').value = '';
-  populateGalpaoSelect(document.getElementById('pedidoGalpao'), '');
-  renderPedidoPhaseFeeding();
-  document.getElementById('pedidoData').value = '';
-  document.getElementById('pedidoFase').value = '';
-  document.getElementById('pedidoQuantidade').value = '';
-  document.getElementById('pedidoObservacao').value = '';
-  renderPedidosTable();
-  renderProjecao();
-});
 
 document.getElementById('projecaoPedidosPlanejadosBody').addEventListener('click', async (event) => {
   const editButton = event.target.closest('.edit-pedido');
@@ -1111,7 +1209,6 @@ document.getElementById('projecaoPedidosPlanejadosBody').addEventListener('click
   const { error } = await supabaseClient.from('pedidos_racao').delete().eq('id', id);
   if (error) { window.alert('Não foi possível excluir o pedido.'); return; }
   pedidos = pedidos.filter((pedido) => String(pedido.id) !== id);
-  renderPedidosTable();
   renderRelatorioPedidos();
   renderProjecao();
 });
@@ -1135,7 +1232,6 @@ document.getElementById('pedidoEditForm').addEventListener('submit', async (even
   if (updateError) { error.textContent = `Não foi possível salvar. Detalhes: ${updateError.message}`; return; }
   const pedido = pedidos.find((item) => String(item.id) === id);
   if (pedido) { pedido.galpao = galpao || null; pedido.data_entrega = data; pedido.fase = fase; pedido.quantidade_kg = quantidade; pedido.observacao = observacao || null; }
-  renderPedidosTable();
   renderRelatorioPedidos();
   renderProjecao();
   closePedidoModal();
