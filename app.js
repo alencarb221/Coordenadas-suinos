@@ -855,7 +855,7 @@ function renderRelatorioPedidos() {
   }
   const { filtered } = getRelatorioPedidos();
   document.getElementById('relatorioTotal').textContent = `${filtered.length} pedido${filtered.length === 1 ? '' : 's'}`;
-  body.innerHTML = filtered.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para este filtro.</td></tr>';
+  body.innerHTML = filtered.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para este filtro.</td></tr>';
   const totalQuantidade = filtered.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
   const totalIntegrados = new Set(filtered.map((pedido) => pedido.integrado_nome)).size;
   document.getElementById('relatorioTotalQuantidade').textContent = `${totalQuantidade.toLocaleString('pt-BR')} kg`;
@@ -888,24 +888,52 @@ function validateRelatorioExport() {
   return { filtered };
 }
 
-function exportRelatorioExcel() {
+async function saveReportFile(blob, filename, description, mimeType, extension) {
+  if (window.showSaveFilePicker) {
+    try {
+      const fileHandle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description, accept: { [mimeType]: [extension] } }]
+      });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      window.alert('Não foi possível salvar o arquivo selecionado.');
+      return;
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportRelatorioExcel() {
   const report = validateRelatorioExport();
   if (!report || !window.XLSX) return;
   const rows = report.filtered.map((pedido) => ({
     'Data de entrega': formatDateBr(pedido.data_entrega),
-    Integrado: pedido.integrado_nome,
-    Galpão: pedido.galpao || '',
     Ração: pedido.fase || '—',
     'Quantidade (kg)': Number(pedido.quantidade_kg),
-    Observação: pedido.observacao || '—'
+    Observação: pedido.observacao || '—',
+    Integrado: pedido.integrado_nome,
+    Galpão: pedido.galpao || ''
   }));
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
-  XLSX.writeFile(workbook, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const fileData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([fileData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  await saveReportFile(blob, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.xlsx`, 'Planilha Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx');
 }
 
-function exportRelatorioPdf() {
+async function exportRelatorioPdf() {
   const report = validateRelatorioExport();
   if (!report || !window.jspdf) return;
   const documentPdf = new window.jspdf.jsPDF({ orientation: 'landscape' });
@@ -913,12 +941,13 @@ function exportRelatorioPdf() {
   documentPdf.text('Relatório de pedidos', 14, 16);
   documentPdf.autoTable({
     startY: 24,
-    head: [['Data de entrega', 'Integrado', 'Galpão', 'Ração', 'Quantidade (kg)', 'Observação']],
-    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.integrado_nome, pedido.galpao || '', pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—']),
+    head: [['Data de entrega', 'Ração', 'Quantidade (kg)', 'Observação', 'Integrado', 'Galpão']],
+    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—', pedido.integrado_nome, pedido.galpao || '']),
     styles: { fontSize: 9 },
     headStyles: { fillColor: [35, 117, 99] }
   });
-  documentPdf.save(`relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.pdf`);
+  const blob = documentPdf.output('blob');
+  await saveReportFile(blob, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.pdf`, 'Arquivo PDF', 'application/pdf', '.pdf');
 }
 
 function openIntegratedModal(farm) {

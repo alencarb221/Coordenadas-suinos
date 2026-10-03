@@ -477,19 +477,19 @@
         <div class="table-wrap integrated-table-wrap">
           <table>
             <thead>
-              <tr><th>Data de entrega</th><th>Integrado</th><th>Galpão</th><th>Ração</th><th>Quantidade (kg)</th><th>Observação</th></tr>
+              <tr><th>Data de entrega</th><th>Ração</th><th>Quantidade (kg)</th><th>Observação</th><th>Integrado</th><th>Galpão</th></tr>
               <tr class="filter-row">
                 <th><input id="relatorioFiltroData" type="date" aria-label="Filtrar por data de entrega"></th>
-                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroIntegrado" type="text" placeholder="Filtrar" aria-label="Filtrar por integrado"></th>
-                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroGalpao" type="text" placeholder="Filtrar" aria-label="Filtrar por galpão"></th>
                 <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroFase" type="text" placeholder="Filtrar" aria-label="Filtrar por ração"></th>
                 <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroQuantidade" type="text" placeholder="Filtrar" aria-label="Filtrar por quantidade"></th>
                 <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroObservacao" type="text" placeholder="Filtrar" aria-label="Filtrar por observação"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroIntegrado" type="text" placeholder="Filtrar" aria-label="Filtrar por integrado"></th>
+                <th class="relatorio-extra-filter" hidden><input id="relatorioFiltroGalpao" type="text" placeholder="Filtrar" aria-label="Filtrar por galpão"></th>
               </tr>
             </thead>
             <tbody id="relatorioTableBody"></tbody>
             <tfoot id="relatorioTotalFoot" hidden>
-              <tr class="relatorio-total-row"><td colspan="4">Total</td><td id="relatorioTotalQuantidade">0 kg</td><td id="relatorioTotalIntegrados">0 integrados</td></tr>
+              <tr class="relatorio-total-row"><td colspan="2">Total</td><td id="relatorioTotalQuantidade">0 kg</td><td></td><td id="relatorioTotalIntegrados">0 integrados</td><td></td></tr>
             </tfoot>
           </table>
         </div>
