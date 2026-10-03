@@ -681,7 +681,7 @@ function renderProjecao() {
   });
   const maxValue = Math.max(...phaseData.flatMap((phase) => [phase.total, phase.programado, phase.falta]), 1);
   const legend = '<div class="chart-legend"><span><i class="legend-total"></i>Total da fase</span><span><i class="legend-programado"></i>Programado</span><span><i class="legend-falta"></i>Falta enviar</span></div>';
-  chart.innerHTML = legend + phaseData.map((phase) => `<div class="chart-group"><div class="chart-group-label">${escapeHtml(phase.sigla)} · ${escapeHtml(phase.label)}</div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-total" style="width:${Math.round((phase.total / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.total.toLocaleString('pt-BR')} kg</span></div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-programado" style="width:${Math.round((phase.programado / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.programado.toLocaleString('pt-BR')} kg</span></div><div class="chart-bar-row"><div class="chart-bar-track"><div class="chart-bar-fill fill-falta" style="width:${Math.round((phase.falta / maxValue) * 100)}%"></div></div><span class="chart-bar-value">${phase.falta.toLocaleString('pt-BR')} kg</span></div></div>`).join('');
+  chart.innerHTML = legend + '<div class="chart-columns">' + phaseData.map((phase) => `<div class="chart-group"><div class="chart-vbars">${[['total', phase.total], ['programado', phase.programado], ['falta', phase.falta]].map(([kind, value]) => `<div class="chart-vbar"><span class="chart-bar-value">${value.toLocaleString('pt-BR')}</span><div class="chart-bar-track"><div class="chart-bar-fill fill-${kind}" style="height:${Math.round((value / maxValue) * 100)}%"></div></div></div>`).join('')}</div><div class="chart-group-label">${escapeHtml(phase.sigla)} · ${escapeHtml(phase.label)}</div></div>`).join('') + '</div>';
   const totalCiclo = animals * FEED_CYCLE_KG_POR_ANIMAL;
   const programada = farmPedidos.reduce((total, pedido) => total + Number(pedido.quantidade_kg), 0);
   const restante = Math.max(0, totalCiclo - programada);
@@ -1471,6 +1471,8 @@ async function initializeAuth() {
     document.getElementById('loginFormError').textContent = 'Configuração do Supabase não carregada.';
     return;
   }
+  // Exige senha a cada acesso, exceto no retorno do link de recuperação de senha.
+  if (!/type=recovery/.test(window.location.hash)) await supabaseClient.auth.signOut({ scope: 'local' });
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) {
     document.getElementById('loginFormError').textContent = 'Não foi possível verificar a sessão.';
