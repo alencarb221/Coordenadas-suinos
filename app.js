@@ -850,12 +850,12 @@ function renderRelatorioPedidos() {
   document.getElementById('relatorioTotalFoot').hidden = !hasDate;
   if (!hasDate) {
     document.getElementById('relatorioTotal').textContent = 'Selecione uma data para ver o relatório';
-    body.innerHTML = '<tr><td colspan="6">Selecione uma data de entrega para ver o relatório.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7">Selecione uma data de entrega para ver o relatório.</td></tr>';
     return;
   }
   const { filtered } = getRelatorioPedidos();
   document.getElementById('relatorioTotal').textContent = `${filtered.length} pedido${filtered.length === 1 ? '' : 's'}`;
-  body.innerHTML = filtered.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td></tr>`).join('') || '<tr><td colspan="6">Nenhum pedido para este filtro.</td></tr>';
+  body.innerHTML = filtered.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td><td><span class="table-dot"></span>${escapeHtml(pedido.integrado_nome)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(farms.find((farm) => farm.name === pedido.integrado_nome)?.city || '—')}</td></tr>`).join('') || '<tr><td colspan="7">Nenhum pedido para este filtro.</td></tr>';
   const totalQuantidade = filtered.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
   const totalIntegrados = new Set(filtered.map((pedido) => pedido.integrado_nome)).size;
   document.getElementById('relatorioTotalQuantidade').textContent = `${totalQuantidade.toLocaleString('pt-BR')} kg`;
@@ -867,6 +867,7 @@ function getRelatorioPedidos() {
   if (!filterData) return { filtered: [] };
   const filterIntegrado = normalizeText(document.getElementById('relatorioFiltroIntegrado').value);
   const filterGalpao = normalizeText(document.getElementById('relatorioFiltroGalpao').value);
+  const filterCidade = normalizeText(document.getElementById('relatorioFiltroCidade').value);
   const filterFase = normalizeText(document.getElementById('relatorioFiltroFase').value);
   const filterQuantidade = document.getElementById('relatorioFiltroQuantidade').value.trim();
   const filterObservacao = normalizeText(document.getElementById('relatorioFiltroObservacao').value);
@@ -874,6 +875,8 @@ function getRelatorioPedidos() {
     if (pedido.data_entrega !== filterData) return false;
     if (filterIntegrado && !normalizeText(pedido.integrado_nome).includes(filterIntegrado)) return false;
     if (filterGalpao && !normalizeText(pedido.galpao || '').includes(filterGalpao)) return false;
+    const cidade = farms.find((farm) => farm.name === pedido.integrado_nome)?.city || '';
+    if (filterCidade && !normalizeText(cidade).includes(filterCidade)) return false;
     if (filterFase && !normalizeText(pedido.fase || '').includes(filterFase)) return false;
     if (filterQuantidade && !String(pedido.quantidade_kg).includes(filterQuantidade)) return false;
     if (filterObservacao && !normalizeText(pedido.observacao || '').includes(filterObservacao)) return false;
@@ -885,7 +888,8 @@ function getRelatorioPedidos() {
 function validateRelatorioExport() {
   const { filtered } = getRelatorioPedidos();
   if (!filtered.length) { window.alert('Não há pedidos para os filtros selecionados.'); return null; }
-  return { filtered };
+  const totalQuantidade = filtered.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
+  return { filtered, totalQuantidade };
 }
 
 async function saveReportFile(blob, filename, description, mimeType, extension) {
@@ -923,10 +927,12 @@ async function exportRelatorioExcel() {
     'Quantidade (kg)': Number(pedido.quantidade_kg),
     Observação: pedido.observacao || '—',
     Integrado: pedido.integrado_nome,
-    Galpão: pedido.galpao || ''
+    Galpão: pedido.galpao || '',
+    Cidade: farms.find((farm) => farm.name === pedido.integrado_nome)?.city || ''
   }));
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.sheet_add_aoa(worksheet, [['Total do volume', '', report.totalQuantidade, '', '', '', '']], { origin: -1 });
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
   const fileData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([fileData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -941,9 +947,12 @@ async function exportRelatorioPdf() {
   documentPdf.text('Relatório de pedidos', 14, 16);
   documentPdf.autoTable({
     startY: 24,
-    head: [['Data de entrega', 'Ração', 'Quantidade (kg)', 'Observação', 'Integrado', 'Galpão']],
-    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—', pedido.integrado_nome, pedido.galpao || '']),
+    head: [['Data de entrega', 'Ração', 'Quantidade (kg)', 'Observação', 'Integrado', 'Galpão', 'Cidade']],
+    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—', pedido.integrado_nome, pedido.galpao || '', farms.find((farm) => farm.name === pedido.integrado_nome)?.city || '']),
+    foot: [[{ content: 'Total do volume', colSpan: 2 }, `${report.totalQuantidade.toLocaleString('pt-BR')} kg`, '', '', '', '']],
+    showFoot: 'lastPage',
     styles: { fontSize: 9 },
+    footStyles: { fontStyle: 'bold' },
     headStyles: { fillColor: [35, 117, 99] }
   });
   const blob = documentPdf.output('blob');
@@ -1266,7 +1275,7 @@ document.getElementById('pedidoEditForm').addEventListener('submit', async (even
   closePedidoModal();
 });
 
-['relatorioFiltroData', 'relatorioFiltroIntegrado', 'relatorioFiltroGalpao', 'relatorioFiltroFase', 'relatorioFiltroQuantidade', 'relatorioFiltroObservacao'].forEach((id) => {
+['relatorioFiltroData', 'relatorioFiltroIntegrado', 'relatorioFiltroGalpao', 'relatorioFiltroCidade', 'relatorioFiltroFase', 'relatorioFiltroQuantidade', 'relatorioFiltroObservacao'].forEach((id) => {
   document.getElementById(id).addEventListener('input', renderRelatorioPedidos);
 });
 document.getElementById('exportRelatorioExcel').addEventListener('click', exportRelatorioExcel);
