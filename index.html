@@ -17,7 +17,7 @@
       <div class="auth-brand"><img class="brand-mark" src="suinotech-icon.svg" alt=""><div><strong>SuinoTech</strong><span>Acesso restrito</span></div></div>
       <p class="eyebrow">Área privada</p>
       <h1>Entrar no sistema</h1>
-      <p class="auth-subtitle">Use seu e-mail e senha para acessar os dados da operação.</p>
+      <p class="auth-subtitle" id="authSubtitle">Entre com seu e-mail e senha para acessar a aplicação.</p>
       <form id="loginForm">
         <label class="auth-label" for="loginEmail">E-mail</label>
         <input id="loginEmail" list="loginEmailHistory" type="email" autocomplete="username" required>
@@ -61,8 +61,8 @@
       <nav class="main-nav" aria-label="Navegação principal">
         <p class="nav-label">Operação</p>
         <a class="nav-item active" data-view="rota" href="#rota"><span class="nav-icon">⌁</span>Planejar rota</a>
-        <a class="nav-item" data-view="integratedView" href="#integrados"><span class="nav-icon">⌖</span>Integrados <span class="nav-count">146</span></a>
         <p class="nav-label secondary-label">Gestão</p>
+        <a class="nav-item" data-view="integratedView" href="#integrados"><span class="nav-icon">⌖</span>Integrados <span class="nav-count">146</span></a>
         <a class="nav-item" data-view="racaoView" href="#racao"><span class="nav-icon">◌</span>Programação de ração</a>
         <a class="nav-item" data-view="ocupacaoView" href="#ocupacao"><span class="nav-icon">▥</span>Ocupação</a>
       </nav>
@@ -70,7 +70,7 @@
       <div class="sidebar-footer">
         <div class="status-dot"></div>
         <div><strong>Base São Miguel do Oeste</strong><span id="authUserLabel">Sessão protegida</span></div>
-        <button class="sidebar-logout" id="logoutButton" type="button" title="Sair">Sair</button>
+        <button class="sidebar-logout" id="logoutButton" type="button" title="Sair" hidden>Sair</button>
       </div>
     </aside>
 

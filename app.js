@@ -26,6 +26,9 @@ let farmsLoaded = false;
 let routeAnalysisInProgress = false;
 const supabaseClient = window.supabase?.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 let authenticatedDataLoaded = false;
+let authenticatedDataPromise = null;
+let managementAuthenticated = false;
+let pendingManagementView = '';
 const LOGIN_EMAILS_STORAGE_KEY = 'coordenadas-suinos-login-emails';
 // kg por animal em cada fase, conforme planilha "Phase feeding-Suinos"
 const DEFAULT_FEED_PHASES = [
@@ -589,9 +592,20 @@ function closeRacaoDetalheModal() {
 
 async function loadGalpoes() {
   if (!supabaseClient) return;
-  const { data, error } = await supabaseClient.from('galpoes_racao').select('id, integrado_nome, nome_galpao, animais_alojados').order('nome_galpao');
-  if (error) { console.error('Erro ao carregar galpões:', error); return; }
-  galpoes = (data || []).filter((galpao) => !isTpLabel(galpao.nome_galpao));
+  const pageSize = 1000;
+  const data = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data: page, error } = await supabaseClient
+      .from('galpoes_racao')
+      .select('id, integrado_nome, nome_galpao, animais_alojados')
+      .order('nome_galpao')
+      .order('id')
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    data.push(...(page || []));
+    if (!page || page.length < pageSize) break;
+  }
+  galpoes = data.filter((galpao) => !isTpLabel(galpao.nome_galpao));
 }
 
 function addGalpaoRow(nome = '', animais = '', listId = 'cadastroGalpoesList', onChange = updateCadastroGalpoesTotal) {
@@ -757,10 +771,20 @@ function compareFeedOrders(first, second) {
 
 async function loadPedidos() {
   if (!supabaseClient) return;
-  const { data, error } = await supabaseClient.from('pedidos_racao').select('id, integrado_nome, galpao, data_entrega, quantidade_kg, fase, observacao').order('data_entrega', { ascending: false });
-  if (error) { console.error('Erro ao carregar pedidos de ração:', error); return; }
-  pedidos = (data || []).map((pedido) => ({ ...pedido, galpao: isTpLabel(pedido.galpao) ? null : pedido.galpao }));
-  renderRelatorioPedidos();
+  const pageSize = 1000;
+  const data = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data: page, error } = await supabaseClient
+      .from('pedidos_racao')
+      .select('id, integrado_nome, galpao, data_entrega, quantidade_kg, fase, observacao')
+      .order('data_entrega', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    data.push(...(page || []));
+    if (!page || page.length < pageSize) break;
+  }
+  pedidos = data.map((pedido) => ({ ...pedido, galpao: isTpLabel(pedido.galpao) ? null : pedido.galpao }));
 }
 
 async function loadHistoricoLotes() {
@@ -888,8 +912,7 @@ function getRelatorioPedidos() {
 function validateRelatorioExport() {
   const { filtered } = getRelatorioPedidos();
   if (!filtered.length) { window.alert('Não há pedidos para os filtros selecionados.'); return null; }
-  const totalQuantidade = filtered.reduce((sum, pedido) => sum + Number(pedido.quantidade_kg), 0);
-  return { filtered, totalQuantidade };
+  return { filtered };
 }
 
 async function saveReportFile(blob, filename, description, mimeType, extension) {
@@ -932,7 +955,6 @@ async function exportRelatorioExcel() {
   }));
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
-  XLSX.utils.sheet_add_aoa(worksheet, [['Total do volume', '', report.totalQuantidade, '', '', '', '']], { origin: -1 });
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Relatório');
   const fileData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([fileData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -949,10 +971,7 @@ async function exportRelatorioPdf() {
     startY: 24,
     head: [['Data de entrega', 'Ração', 'Quantidade (kg)', 'Observação', 'Integrado', 'Galpão', 'Cidade']],
     body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—', pedido.integrado_nome, pedido.galpao || '', farms.find((farm) => farm.name === pedido.integrado_nome)?.city || '']),
-    foot: [[{ content: 'Total do volume', colSpan: 2 }, `${report.totalQuantidade.toLocaleString('pt-BR')} kg`, '', '', '', '']],
-    showFoot: 'lastPage',
     styles: { fontSize: 9 },
-    footStyles: { fontStyle: 'bold' },
     headStyles: { fillColor: [35, 117, 99] }
   });
   const blob = documentPdf.output('blob');
@@ -976,6 +995,13 @@ function closeIntegratedModal() {
 }
 
 function showView(view) {
+  const protectedViews = ['integratedView', 'racaoView', 'ocupacaoView'];
+  if (protectedViews.includes(view) && !managementAuthenticated) {
+    pendingManagementView = view;
+    showAuthForm('loginForm');
+    return;
+  }
+
   const routeView = document.getElementById('routeView');
   const integratedView = document.getElementById('integratedView');
   const racaoView = document.getElementById('racaoView');
@@ -1353,14 +1379,17 @@ window.addEventListener('resize', syncMapHeightWithMeasurement);
 if (window.ResizeObserver) new ResizeObserver(syncMapHeightWithMeasurement).observe(document.querySelector('.manual-distance-panel'));
 
 function updateAuthInterface(session) {
-  document.getElementById('authGate').hidden = Boolean(session);
+  managementAuthenticated = Boolean(session);
+  document.getElementById('authGate').hidden = managementAuthenticated;
   document.getElementById('authUserLabel').textContent = session?.user?.email || 'Sessão protegida';
+  document.getElementById('logoutButton').hidden = !managementAuthenticated;
 }
 
 function showAuthForm(formId) {
   ['loginForm', 'recoveryRequestForm', 'newPasswordForm'].forEach((id) => {
     document.getElementById(id).hidden = id !== formId;
   });
+  document.getElementById('authSubtitle').textContent = 'Entre com seu e-mail e senha para acessar a aplicação.';
   document.getElementById('authGate').hidden = false;
 }
 
@@ -1393,17 +1422,31 @@ document.getElementById('loginEmailOptions').addEventListener('click', (event) =
   if (option) document.getElementById('loginEmail').value = option.dataset.email;
 });
 
-function loadAuthenticatedData() {
-  if (authenticatedDataLoaded) return;
-  authenticatedDataLoaded = true;
-  loadFarms().catch((error) => {
-    document.querySelector('.draft-badge').textContent = 'Erro ao carregar pontos';
-    const detail = error?.message ? ` Detalhes: ${error.message}` : '';
-    document.querySelector('.subtitle').textContent = `Não foi possível carregar os integrados do Supabase.${detail}`;
-    console.error(error);
-  });
-  loadGalpoes();
-  loadPedidos();
+async function loadAuthenticatedData() {
+  if (!managementAuthenticated) return false;
+  if (authenticatedDataLoaded) return true;
+  if (authenticatedDataPromise) return authenticatedDataPromise;
+
+  authenticatedDataPromise = (async () => {
+    try {
+      await Promise.all([loadFarms(), loadGalpoes(), loadPedidos()]);
+      renderProjecaoOptions();
+      renderProjecaoGalpaoOptions();
+      renderProjecao();
+      renderRelatorioPedidos();
+      authenticatedDataLoaded = true;
+      return true;
+    } catch (error) {
+      document.querySelector('.draft-badge').textContent = 'Erro ao carregar dados';
+      const detail = error?.message ? ` Detalhes: ${error.message}` : '';
+      document.querySelector('.subtitle').textContent = `Não foi possível carregar os dados de gestão do Supabase.${detail}`;
+      console.error(error);
+      return false;
+    } finally {
+      authenticatedDataPromise = null;
+    }
+  })();
+  return authenticatedDataPromise;
 }
 
 document.getElementById('loginForm').addEventListener('submit', async (event) => {
@@ -1418,12 +1461,24 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
     return;
   }
   const email = document.getElementById('loginEmail').value.trim();
-  const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+  const { data: signInData, error: signInError } = await supabaseClient.auth.signInWithPassword({
     email,
     password: document.getElementById('loginPassword').value,
   });
-  if (signInError) error.textContent = 'E-mail ou senha inválidos.';
-  else saveLoginEmail(email);
+  if (signInError) {
+    error.textContent = 'E-mail ou senha inválidos.';
+  } else {
+    saveLoginEmail(email);
+    updateAuthInterface(signInData.session);
+    if (await loadAuthenticatedData()) {
+      const view = pendingManagementView || 'rota';
+      pendingManagementView = '';
+      document.getElementById('authGate').hidden = true;
+      showView(view);
+    } else {
+      error.textContent = 'Acesso autenticado, mas não foi possível carregar os dados de gestão. Tente novamente.';
+    }
+  }
   button.disabled = false;
 });
 
@@ -1477,27 +1532,43 @@ document.getElementById('logoutButton').addEventListener('click', async () => {
 
 async function initializeAuth() {
   if (!supabaseClient) {
-    document.getElementById('loginFormError').textContent = 'Configuração do Supabase não carregada.';
+    document.querySelector('.draft-badge').textContent = 'Configuração indisponível';
+    document.querySelector('.subtitle').textContent = 'Não foi possível verificar sua autenticação.';
     return;
   }
   // Exige senha a cada acesso, exceto no retorno do link de recuperação de senha.
-  if (!/type=recovery/.test(window.location.hash)) await supabaseClient.auth.signOut({ scope: 'local' });
+  const isRecovery = /type=recovery/.test(window.location.hash);
+  if (!isRecovery) await supabaseClient.auth.signOut({ scope: 'local' });
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) {
-    document.getElementById('loginFormError').textContent = 'Não foi possível verificar a sessão.';
+    document.querySelector('.draft-badge').textContent = 'Erro ao verificar acesso';
+    document.querySelector('.subtitle').textContent = 'Não foi possível verificar o acesso à aplicação.';
     return;
   }
   loadLoginEmailHistory();
   updateAuthInterface(data.session);
-  if (data.session) loadAuthenticatedData();
+  if (isRecovery) showAuthForm('newPasswordForm');
+  if (data.session && !isRecovery) loadAuthenticatedData();
   supabaseClient.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') {
       showAuthForm('newPasswordForm');
       return;
     }
     updateAuthInterface(session);
-    if (session) setTimeout(loadAuthenticatedData, 0);
-    else authenticatedDataLoaded = false;
+    if (session) {
+      setTimeout(async () => {
+        if (await loadAuthenticatedData() && pendingManagementView) {
+          const view = pendingManagementView;
+          pendingManagementView = '';
+          document.getElementById('authGate').hidden = true;
+          showView(view);
+        }
+      }, 0);
+    } else {
+      authenticatedDataLoaded = false;
+      authenticatedDataPromise = null;
+      showView('rota');
+    }
   });
 }
 
