@@ -938,7 +938,7 @@ function getRelatorioPedidos() {
     if (filterObservacao && !normalizeText(pedido.observacao || '').includes(filterObservacao)) return false;
     return true;
   });
-  return { filtered };
+  return { filtered: filtered.sort(compareFeedOrders) };
 }
 
 function validateRelatorioExport() {
@@ -991,23 +991,6 @@ async function exportRelatorioExcel() {
   const fileData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([fileData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   await saveReportFile(blob, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.xlsx`, 'Planilha Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx');
-}
-
-async function exportRelatorioPdf() {
-  const report = validateRelatorioExport();
-  if (!report || !window.jspdf) return;
-  const documentPdf = new window.jspdf.jsPDF({ orientation: 'landscape' });
-  documentPdf.setFontSize(16);
-  documentPdf.text('Relatório de pedidos', 14, 16);
-  documentPdf.autoTable({
-    startY: 24,
-    head: [['Data de entrega', 'Ração', 'Quantidade (kg)', 'Observação', 'Integrado', 'Galpão', 'Cidade']],
-    body: report.filtered.map((pedido) => [formatDateBr(pedido.data_entrega), pedido.fase || '—', `${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg`, pedido.observacao || '—', pedido.integrado_nome, pedido.galpao || '', farms.find((farm) => farm.name === pedido.integrado_nome)?.city || '']),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [35, 117, 99] }
-  });
-  const blob = documentPdf.output('blob');
-  await saveReportFile(blob, `relatorio-pedidos-${new Date().toISOString().slice(0, 10)}.pdf`, 'Arquivo PDF', 'application/pdf', '.pdf');
 }
 
 function openIntegratedModal(farm) {
@@ -1121,6 +1104,46 @@ function closeProjecaoCargasModal() {
   document.getElementById('projecaoCargasModal').hidden = true;
 }
 
+function readTableRows(tbodyId) {
+  return [...document.querySelectorAll(`#${tbodyId} tr`)]
+    .map((row) => [...row.children].map((cell) => cell.textContent.trim()))
+    .filter((cells) => cells.length > 1);
+}
+
+async function exportProjecaoCargasPdf() {
+  if (!window.jspdf?.jsPDF) {
+    alert('Biblioteca de PDF não carregada. Verifique a conexão e recarregue a página.');
+    return;
+  }
+  const resumo = document.getElementById('projecaoCargasModalResumo').textContent;
+  const pedidos = readTableRows('projecaoPedidosModalBody');
+  const cargas = readTableRows('projecaoCargasModalBody');
+  if (!pedidos.length && !cargas.length) {
+    alert('Não há cargas para exportar.');
+    return;
+  }
+  const doc = new window.jspdf.jsPDF({ orientation: 'portrait' });
+  doc.setFontSize(14);
+  doc.text('Cargas do lote', 14, 16);
+  doc.setFontSize(10);
+  doc.text(resumo, 14, 23);
+  const headStyles = { fillColor: [35, 117, 99] };
+  let startY = 29;
+  if (pedidos.length) {
+    doc.text('Cargas programadas', 14, startY + 4);
+    doc.autoTable({ startY: startY + 7, head: [['Entrega', 'Galpão', 'Fase', 'Quantidade']], body: pedidos, styles: { fontSize: 9 }, headStyles });
+    startY = doc.lastAutoTable.finalY + 8;
+  }
+  if (cargas.length) {
+    doc.text(`Cargas sugeridas · ${document.getElementById('projecaoCargasModalTotal').textContent}`, 14, startY + 4);
+    doc.autoTable({ startY: startY + 7, head: [['Carga', 'Fase', 'Quantidade']], body: cargas, styles: { fontSize: 9 }, headStyles });
+  }
+  const slug = resumo.split('·')[0].trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'integrado';
+  const filename = `cargas-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  await saveReportFile(doc.output('blob'), filename, 'Arquivo PDF', 'application/pdf', '.pdf');
+}
+
+document.getElementById('exportProjecaoCargasPdf').addEventListener('click', exportProjecaoCargasPdf);
 document.getElementById('openProjecaoCargasModal').addEventListener('click', openProjecaoCargasModal);
 document.getElementById('closeProjecaoCargasModal').addEventListener('click', closeProjecaoCargasModal);
 document.getElementById('projecaoCargasModal').addEventListener('click', (event) => {
@@ -1319,7 +1342,6 @@ document.getElementById('pedidoEditForm').addEventListener('submit', async (even
   document.getElementById(id).addEventListener('input', renderRelatorioPedidos);
 });
 document.getElementById('exportRelatorioExcel').addEventListener('click', exportRelatorioExcel);
-document.getElementById('exportRelatorioPdf').addEventListener('click', exportRelatorioPdf);
 
 document.getElementById('newIntegrated').addEventListener('click', () => openIntegratedModal());
 document.getElementById('closeModal').addEventListener('click', closeIntegratedModal);
