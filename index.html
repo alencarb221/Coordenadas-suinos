@@ -121,7 +121,7 @@
             <div id="candidateFields">
               <div class="candidate-entry">
                 <div class="select-wrap autocomplete-wrap">
-                  <span class="field-icon candidate-icon">+</span>
+                  <span class="field-icon candidate-icon">B</span>
                   <input class="candidate-input" id="candidate" list="farmOptions" autocomplete="off" placeholder="Digite para adicionar">
                 </div>
                 <button class="add-button add-candidate" type="button" title="Adicionar integrado" aria-label="Adicionar integrado">+</button>
@@ -168,14 +168,15 @@
               <button class="map-layer" id="openInGoogleMaps" type="button" title="Abrir esta rota no Google Maps">Abrir no Google Maps</button>
             </div>
           </div>
-          <div id="map" aria-label="Mapa das granjas e da fábrica"></div>
+          <div id="map" aria-label="Mapa das cidades, granjas e da fábrica"></div>
           <div class="map-legend">
             <span><i class="legend-origin"></i> Fábrica</span>
             <span><i class="legend-primary"></i> A · Principal</span>
-            <span><i class="legend-candidate"></i> B · Combinação</span>
+            <span><i class="legend-candidate"></i> B, C... · Combinações</span>
             <span><i class="legend-possibility"></i> Possibilidade</span>
             <span><i class="legend-route"></i> Rota</span>
             <span><i class="legend-route legend-alternative"></i> Alternativa</span>
+            <span><i class="legend-city"></i> Cidade (posição aproximada)</span>
           </div>
         </div>
       </section>
@@ -185,7 +186,7 @@
         <div class="metric-grid" id="metricGrid">
           <article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>— <small>km</small></strong><span class="metric-note">Selecione o integrado principal</span></article>
           <article class="metric-card"><span class="metric-label">Tempo até A</span><strong>—</strong><span class="metric-note">Calculado pela estrada</span></article>
-          <article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>— <small>km</small></strong><span class="metric-note">Soma dos trechos entre A e B</span></article>
+          <article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>— <small>km</small></strong><span class="metric-note">Soma dos trechos entre integrados</span></article>
         </div>
         <div class="route-details" id="routeDetails">
           <div class="empty-results">As distâncias entre a fábrica, os pontos B e o ponto A aparecerão aqui.</div>
@@ -246,7 +247,6 @@
         <button class="subnav-tab active" data-racao-tab="racaoPanelCadastro" type="button" role="tab">Cadastro</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelProjecao" type="button" role="tab">Programação</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelRelatorio" type="button" role="tab">Relatório</button>
-        <button class="subnav-tab" data-racao-tab="racaoPanelHistorico" type="button" role="tab">Histórico</button>
         <button class="subnav-tab" data-racao-tab="racaoPanelPhaseFeeding" type="button" role="tab">Phase Feeding</button>
       </div>
 
@@ -494,37 +494,6 @@
             </tfoot>
           </table>
         </div>
-      </div>
-
-      <div class="racao-panel" id="racaoPanelHistorico" hidden>
-        <div class="section-title-row">
-          <div><span class="section-kicker">Arquivo</span><h2>Lotes concluídos</h2></div>
-        </div>
-        <form class="integrated-toolbar historico-toolbar" id="historicoLotesForm">
-          <div class="search-control"><span>⌕</span><input id="historicoLotesBusca" type="search" placeholder="Buscar integrado concluído" autocomplete="off"></div>
-          <button class="quiet-button" type="submit">Buscar</button>
-        </form>
-        <div class="integrated-toolbar"><span class="integrated-total" id="historicoLotesTotal">Carregando lotes concluídos...</span></div>
-        <div class="table-wrap historico-table-wrap">
-          <table><thead><tr><th>Integrado</th><th>Cidade</th><th>Início do lote</th><th>Conclusão do lote</th><th>Animais</th><th>Cargas arquivadas</th><th>Ações</th></tr></thead>
-            <tbody id="historicoLotesBody"><tr><td colspan="7">Carregando lotes concluídos...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="modal-backdrop" id="historicoLoteModal" hidden>
-        <section class="integrated-modal historico-lote-modal" role="dialog" aria-modal="true" aria-labelledby="historicoLoteModalTitle">
-          <div class="modal-header">
-            <div><span class="section-kicker">Arquivo do lote</span><h2 id="historicoLoteModalTitle">Cargas do lote</h2></div>
-            <button class="modal-close" id="closeHistoricoLoteModal" type="button" aria-label="Fechar">×</button>
-          </div>
-          <p class="historico-lote-resumo" id="historicoLoteResumo"></p>
-          <div class="table-wrap">
-            <table><thead><tr><th>Entrega</th><th>Galpão</th><th>Fase</th><th>Quantidade</th><th>Observação</th></tr></thead>
-              <tbody id="historicoLotePedidosBody"></tbody>
-            </table>
-          </div>
-        </section>
       </div>
 
       <div class="racao-panel" id="racaoPanelPhaseFeeding" hidden>

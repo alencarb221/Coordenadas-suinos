@@ -1,39 +1,4 @@
-create table if not exists public.historico_lotes_racao (
-  id bigint generated always as identity primary key,
-  integrado_nome text not null,
-  cidade text not null,
-  animais_alojados integer not null default 0,
-  galpoes jsonb not null default '[]'::jsonb,
-  pedidos jsonb not null default '[]'::jsonb,
-  fases_racao jsonb not null default '[]'::jsonb,
-  concluido_em timestamptz not null default now()
-);
-
-create index if not exists historico_lotes_racao_concluido_em_idx
-  on public.historico_lotes_racao (concluido_em desc);
-
-alter table public.historico_lotes_racao enable row level security;
-
-drop policy if exists historico_lotes_racao_authenticated_read
-  on public.historico_lotes_racao;
-create policy historico_lotes_racao_authenticated_read
-  on public.historico_lotes_racao
-  for select
-  to authenticated
-  using (true);
-
-grant select on public.historico_lotes_racao to authenticated;
-
-drop policy if exists historico_lotes_racao_authenticated_delete
-  on public.historico_lotes_racao;
-create policy historico_lotes_racao_authenticated_delete
-  on public.historico_lotes_racao
-  for delete
-  to authenticated
-  using (true);
-
-grant delete on public.historico_lotes_racao to authenticated;
-
+-- Atualize o RPC no Supabase e remova os dados/tabela do histórico de lotes.
 create or replace function public.iniciar_novo_lote_racao(
   p_integrado_nome text,
   p_animais_alojados integer,
@@ -47,7 +12,6 @@ set search_path = public
 as $$
 declare
   v_integrado public.integrados%rowtype;
-  v_tem_lote_ativo boolean;
 begin
   if auth.role() is distinct from 'authenticated' then
     raise exception 'Autenticação necessária para iniciar um lote.';
@@ -69,44 +33,6 @@ begin
 
   if not found then
     raise exception 'Integrado não encontrado: %.', p_integrado_nome;
-  end if;
-
-  select coalesce(v_integrado.animais_alojados, 0) > 0
-    or exists (
-      select 1 from public.galpoes_racao
-      where integrado_nome = p_integrado_nome
-    )
-    or exists (
-      select 1 from public.pedidos_racao
-      where integrado_nome = p_integrado_nome
-    )
-  into v_tem_lote_ativo;
-
-  if v_tem_lote_ativo then
-    insert into public.historico_lotes_racao (
-      integrado_nome,
-      cidade,
-      animais_alojados,
-      galpoes,
-      pedidos,
-      fases_racao
-    )
-    values (
-      v_integrado.nome,
-      v_integrado.cidade,
-      coalesce(v_integrado.animais_alojados, 0),
-      coalesce((
-        select jsonb_agg(to_jsonb(g) order by g.nome_galpao)
-        from public.galpoes_racao as g
-        where g.integrado_nome = p_integrado_nome
-      ), '[]'::jsonb),
-      coalesce((
-        select jsonb_agg(to_jsonb(p) order by p.data_entrega, p.id)
-        from public.pedidos_racao as p
-        where p.integrado_nome = p_integrado_nome
-      ), '[]'::jsonb),
-      coalesce(p_fases_racao, '[]'::jsonb)
-    );
   end if;
 
   delete from public.pedidos_racao
@@ -131,3 +57,5 @@ $$;
 
 revoke all on function public.iniciar_novo_lote_racao(text, integer, jsonb, jsonb) from public;
 grant execute on function public.iniciar_novo_lote_racao(text, integer, jsonb, jsonb) to authenticated;
+
+drop table if exists public.historico_lotes_racao;

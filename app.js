@@ -8,10 +8,12 @@ const satelliteRoadLayer = L.tileLayer('https://services.arcgisonline.com/ArcGIS
 
 const originIcon = L.divIcon({ className: 'custom-pin origin-pin', html: '<span>F</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 const primaryIcon = L.divIcon({ className: 'custom-pin primary-pin', html: '<span>A</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
-const candidateIcon = L.divIcon({ className: 'custom-pin candidate-pin', html: '<span>B</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 const possibilityIcon = L.divIcon({ className: 'custom-pin possibility-pin', html: '<span>+</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
 L.marker(origin, { icon: originIcon, zIndexOffset: 1000 }).addTo(map).bindTooltip('Fábrica de ração · São Miguel do Oeste', { permanent: true, direction: 'top', offset: [0, -14], className: 'selection-label' });
 
+const cityLabelLayer = L.layerGroup();
+let cityLabelData = [];
+map.on('zoomend moveend', renderVisibleCityLabels);
 const routeLayer = L.layerGroup().addTo(map);
 const selectionLayer = L.layerGroup().addTo(map);
 const possibilityLayer = L.layerGroup().addTo(map);
@@ -53,8 +55,6 @@ let baseFarms = [];
 let farmRefreshQueued = false;
 let pedidos = [];
 let galpoes = [];
-let historicoLotesRequestId = 0;
-let historicoLotes = [];
 let ocupacaoViagens = [];
 let manualPointSelection = null;
 const manualPointColors = {
@@ -64,6 +64,21 @@ const manualPointColors = {
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+}
+
+function getIntegratedLetter(index) {
+  let number = index + 1;
+  let label = '';
+  while (number > 0) {
+    number -= 1;
+    label = String.fromCharCode(65 + number % 26) + label;
+    number = Math.floor(number / 26);
+  }
+  return label;
+}
+
+function createCandidateIcon(label) {
+  return L.divIcon({ className: 'custom-pin candidate-pin', html: `<span>${escapeHtml(label)}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] });
 }
 
 function loadFeedPhases() {
@@ -190,12 +205,78 @@ function saveFeedPhases() {
 
 function refreshFarmSources() {
   farms.sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }));
+  renderCityLabels();
   renderFarmOptions('');
   document.querySelector('.nav-count').textContent = farms.length;
   document.querySelector('.draft-badge').textContent = `${farms.length} pontos carregados`;
   renderIntegratedTable();
   renderRacaoTable();
   renderProjecaoOptions();
+}
+
+function renderCityLabels() {
+  const cities = new Map();
+  farms.forEach((farm) => {
+    const name = String(farm.city || '').trim();
+    const coords = farm.coords;
+    if (!name || !Array.isArray(coords) || coords.length < 2 || coords.some((coordinate) => coordinate === null || coordinate === '' || !Number.isFinite(Number(coordinate)))) return;
+
+    const key = normalizeText(name);
+    const city = cities.get(key) || { name, latitude: 0, longitude: 0, count: 0 };
+    city.latitude += Number(coords[0]);
+    city.longitude += Number(coords[1]);
+    city.count += 1;
+    cities.set(key, city);
+  });
+
+  cityLabelData = [...cities.values()].map((city) => ({
+    name: city.name.toLocaleLowerCase('pt-BR')
+      .replace(/(^|\s)(\S)/g, (_, space, letter) => `${space}${letter.toLocaleUpperCase('pt-BR')}`)
+      .replace(/\b(De|Da|Do|Das|Dos|E)\b/g, (word) => word.toLocaleLowerCase('pt-BR')),
+    coords: [city.latitude / city.count, city.longitude / city.count],
+    count: city.count,
+  }));
+  renderVisibleCityLabels();
+}
+
+function renderVisibleCityLabels() {
+  cityLabelLayer.clearLayers();
+  if (map.getZoom() < 9) {
+    map.removeLayer(cityLabelLayer);
+    return;
+  }
+
+  const bounds = map.getBounds();
+  const padding = map.getZoom() >= 11 ? 9 : 18;
+  const placedLabels = [];
+  cityLabelData
+    .filter((city) => bounds.contains(city.coords))
+    .sort((first, second) => second.count - first.count || first.name.localeCompare(second.name, 'pt-BR'))
+    .forEach((city) => {
+      const point = map.latLngToContainerPoint(city.coords);
+      const width = Math.min(150, Math.max(36, city.name.length * 6));
+      const height = 18;
+      const overlaps = placedLabels.some((placed) => (
+        Math.abs(point.x - placed.x) < (width + placed.width) / 2 + padding
+        && Math.abs(point.y - placed.y) < (height + placed.height) / 2 + padding
+      ));
+      if (overlaps) return;
+
+      placedLabels.push({ x: point.x, y: point.y, width, height });
+      const icon = L.divIcon({
+        className: 'city-label-icon',
+        html: `<span>${escapeHtml(city.name)}</span>`,
+        iconSize: [1, 1],
+        iconAnchor: [0, 0],
+      });
+      L.marker(city.coords, {
+        icon,
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -100,
+      }).addTo(cityLabelLayer);
+    });
+  if (!map.hasLayer(cityLabelLayer)) cityLabelLayer.addTo(map);
 }
 
 function renderFarmOptions(query) {
@@ -232,10 +313,13 @@ function updateTypingPreview() {
   if (primaryFarm) {
     L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 950 }).addTo(previewLayer).bindTooltip(`${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
   }
+  let candidateIndex = selected.length;
   document.querySelectorAll('.candidate-input').forEach((input) => {
     const farm = findFarm(input.value);
     if (farm && farm.name !== primaryFarm?.name && !selected.some((item) => item.name === farm.name)) {
-      L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 950 }).addTo(previewLayer).bindTooltip(`${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
+      const label = getIntegratedLetter(candidateIndex + 1);
+      L.marker(farm.coords, { icon: createCandidateIcon(label), zIndexOffset: 950 }).addTo(previewLayer).bindTooltip(`${label} · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
+      candidateIndex += 1;
     }
   });
 }
@@ -244,8 +328,9 @@ function renderRoutePoints(primaryFarm, selectedCandidates) {
   selectionLayer.clearLayers();
   previewLayer.clearLayers();
   L.marker(primaryFarm.coords, { icon: primaryIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`A · ${escapeHtml(primaryFarm.name)} · ${escapeHtml(primaryFarm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
-  selectedCandidates.forEach((farm) => {
-    L.marker(farm.coords, { icon: candidateIcon, zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`B · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
+  selectedCandidates.forEach((farm, index) => {
+    const label = getIntegratedLetter(index + 1);
+    L.marker(farm.coords, { icon: createCandidateIcon(label), zIndexOffset: 1000 }).addTo(selectionLayer).bindTooltip(`${label} · ${escapeHtml(farm.name)} · ${escapeHtml(farm.city)}`, { direction: 'top', offset: [0, -14], className: 'selection-label' });
   });
 }
 
@@ -260,6 +345,16 @@ function isTpLabel(value) {
 function formatDateBr(isoDate) {
   const [year, month, day] = String(isoDate || '').split('-');
   return year && month && day ? `${day}/${month}/${year}` : '—';
+}
+
+function formatDateBrWithWeekday(isoDate) {
+  const match = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '—';
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  if (date.getFullYear() !== Number(year) || date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) return '—';
+  const weekday = new Intl.DateTimeFormat('pt-BR', { weekday: 'long' }).format(date);
+  return `${formatDateBr(isoDate)} · ${weekday}`;
 }
 
 function parseBrazilianNumber(value) {
@@ -723,10 +818,10 @@ function renderProjecaoCargasPlanejadas(phaseData, farmPedidos) {
   if (pedidosTotal) pedidosTotal.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
   if (modalPedidosTotal) modalPedidosTotal.textContent = `${farmPedidos.length} carga${farmPedidos.length === 1 ? '' : 's'}`;
   if (pedidosBody) {
-    pedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || `<tr><td colspan="5">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
+    pedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBrWithWeekday(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td><td class="table-actions"><button class="table-action edit-pedido" type="button" data-id="${pedido.id}">Editar</button><button class="table-action delete-integrated delete-pedido" type="button" data-id="${pedido.id}">Excluir</button></td></tr>`).join('') || `<tr><td colspan="5">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
   }
   if (modalPedidosBody) {
-    modalPedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td></tr>`).join('') || `<tr><td colspan="4">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
+    modalPedidosBody.innerHTML = farmPedidos.map((pedido) => `<tr><td>${formatDateBrWithWeekday(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg).toLocaleString('pt-BR')} kg</td></tr>`).join('') || `<tr><td colspan="4">${phaseData.length ? 'Nenhuma carga agendada para este filtro.' : 'Selecione um integrado.'}</td></tr>`;
   }
   if (!phaseData.length) {
     body.innerHTML = '<tr><td colspan="3">Selecione um integrado.</td></tr>';
@@ -785,69 +880,6 @@ async function loadPedidos() {
     if (!page || page.length < pageSize) break;
   }
   pedidos = data.map((pedido) => ({ ...pedido, galpao: isTpLabel(pedido.galpao) ? null : pedido.galpao }));
-}
-
-async function loadHistoricoLotes() {
-  const body = document.getElementById('historicoLotesBody');
-  const total = document.getElementById('historicoLotesTotal');
-  const queryText = document.getElementById('historicoLotesBusca').value.trim();
-  const requestId = ++historicoLotesRequestId;
-  body.innerHTML = '<tr><td colspan="5">Buscando lotes concluídos...</td></tr>';
-
-  let query = supabaseClient
-    .from('historico_lotes_racao')
-    .select('id, integrado_nome, cidade, animais_alojados, pedidos, concluido_em')
-    .order('concluido_em', { ascending: false })
-    .limit(100);
-  if (queryText) query = query.ilike('integrado_nome', `%${queryText}%`);
-
-  const { data, error } = await query;
-  if (requestId !== historicoLotesRequestId) return;
-  if (error) {
-    total.textContent = 'Não foi possível carregar o histórico.';
-    body.innerHTML = '<tr><td colspan="5">Verifique se a configuração SQL do histórico foi aplicada no Supabase.</td></tr>';
-    console.error('Erro ao carregar histórico de lotes:', error);
-    return;
-  }
-
-  const lotes = data || [];
-  historicoLotes = lotes;
-  total.textContent = `${lotes.length} lote${lotes.length === 1 ? '' : 's'} concluído${lotes.length === 1 ? '' : 's'}${lotes.length === 100 ? ' (mostrando os 100 mais recentes)' : ''}`;
-  body.innerHTML = lotes.map((lote) => {
-    const cargas = Array.isArray(lote.pedidos) ? lote.pedidos : [];
-    const dataInicio = cargas.map((pedido) => pedido.data_entrega).filter(Boolean).sort()[0];
-    const dataConclusao = String(lote.concluido_em || '').slice(0, 10);
-    return `<tr><td>${escapeHtml(lote.integrado_nome)}</td><td>${escapeHtml(lote.cidade || '—')}</td><td>${formatDateBr(dataInicio)}</td><td>${formatDateBr(dataConclusao)}</td><td>${Number(lote.animais_alojados || 0).toLocaleString('pt-BR')}</td><td>${cargas.length}</td><td><div class="table-actions"><button class="table-action" type="button" data-historico-acao="visualizar" data-lote-id="${escapeHtml(lote.id)}">Visualizar</button><button class="table-action delete-integrated" type="button" data-historico-acao="excluir" data-lote-id="${escapeHtml(lote.id)}">Excluir</button></div></td></tr>`;
-  }).join('') || '<tr><td colspan="7">Nenhum lote concluído encontrado.</td></tr>';
-}
-
-function openHistoricoLote(lote) {
-  const cargas = Array.isArray(lote.pedidos) ? [...lote.pedidos] : [];
-  cargas.sort((first, second) => String(first.data_entrega || '').localeCompare(String(second.data_entrega || '')));
-  const dataInicio = cargas.map((pedido) => pedido.data_entrega).filter(Boolean).sort()[0];
-  const dataConclusao = String(lote.concluido_em || '').slice(0, 10);
-  document.getElementById('historicoLoteResumo').textContent = `${lote.integrado_nome} · ${lote.cidade || 'Cidade não informada'} · Início: ${formatDateBr(dataInicio)} · Conclusão: ${formatDateBr(dataConclusao)}`;
-  document.getElementById('historicoLotePedidosBody').innerHTML = cargas.map((pedido) => `<tr><td>${formatDateBr(pedido.data_entrega)}</td><td>${escapeHtml(pedido.galpao || '—')}</td><td>${escapeHtml(pedido.fase || '—')}</td><td>${Number(pedido.quantidade_kg || 0).toLocaleString('pt-BR')} kg</td><td>${escapeHtml(pedido.observacao || '—')}</td></tr>`).join('') || '<tr><td colspan="5">Este lote não possui cargas arquivadas.</td></tr>';
-  document.getElementById('historicoLoteModal').hidden = false;
-}
-
-function closeHistoricoLote() {
-  document.getElementById('historicoLoteModal').hidden = true;
-}
-
-async function deleteHistoricoLote(lote) {
-  if (!window.confirm(`Excluir somente o registro histórico do lote de ${lote.integrado_nome}? O integrado e o lote atual não serão alterados.`)) return;
-  const { data: excluidos, error } = await supabaseClient.from('historico_lotes_racao').delete().eq('id', lote.id).select('id');
-  if (error) {
-    console.error('Erro ao excluir registro do histórico:', error);
-    window.alert(`Não foi possível excluir o registro do histórico. Detalhes: ${error.message}`);
-    return;
-  }
-  if (!excluidos?.length) {
-    window.alert('Nenhum registro foi excluído. No Supabase, habilite a política RLS de DELETE para a tabela historico_lotes_racao.');
-    return;
-  }
-  loadHistoricoLotes();
 }
 
 function openPedidoModal(pedido) {
@@ -1046,26 +1078,8 @@ document.querySelectorAll('.subnav-tab').forEach((tab) => tab.addEventListener('
   document.querySelectorAll('.racao-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.racaoTab; });
   if (tab.dataset.racaoTab === 'racaoPanelProjecao') { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); renderProjecao(); }
   if (tab.dataset.racaoTab === 'racaoPanelRelatorio') renderRelatorioPedidos();
-  if (tab.dataset.racaoTab === 'racaoPanelHistorico') loadHistoricoLotes();
   if (tab.dataset.racaoTab === 'racaoPanelPhaseFeeding') { renderPhaseFeeding(); renderPhaseSimulation(); }
 }));
-
-document.getElementById('historicoLotesForm').addEventListener('submit', (event) => {
-  event.preventDefault();
-  loadHistoricoLotes();
-});
-document.getElementById('historicoLotesBody').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-historico-acao]');
-  if (!button) return;
-  const lote = historicoLotes.find((item) => String(item.id) === button.dataset.loteId);
-  if (!lote) return;
-  if (button.dataset.historicoAcao === 'visualizar') openHistoricoLote(lote);
-  if (button.dataset.historicoAcao === 'excluir') deleteHistoricoLote(lote);
-});
-document.getElementById('closeHistoricoLoteModal').addEventListener('click', closeHistoricoLote);
-document.getElementById('historicoLoteModal').addEventListener('click', (event) => {
-  if (event.target.id === 'historicoLoteModal') closeHistoricoLote();
-});
 
 document.getElementById('projecaoSelect').addEventListener('input', () => { renderProjecaoOptions(); renderProjecaoGalpaoOptions(); syncMaxTruckLoadForSelectedFarm(); renderProjecao(); });
 document.getElementById('projecaoSelect').addEventListener('change', () => { renderProjecaoGalpaoOptions(); syncMaxTruckLoadForSelectedFarm(); renderProjecao(); });
@@ -1230,7 +1244,7 @@ document.getElementById('calcularCadastro').addEventListener('click', async () =
   const temLoteAtivo = (farm.animals || 0) > 0
     || getGalpoesByFarm(farm.name).length > 0
     || pedidos.some((pedido) => pedido.integrado_nome === farm.name);
-  if (temLoteAtivo && !window.confirm(`O integrado ${farm.name} já possui um lote ativo. Deseja concluí-lo e arquivá-lo no Histórico para iniciar um novo ciclo? Os pedidos e galpões atuais serão substituídos.`)) return;
+  if (temLoteAtivo && !window.confirm(`O integrado ${farm.name} já possui um lote ativo. Deseja substituí-lo por um novo? Os pedidos e galpões atuais serão excluídos e não ficarão salvos no histórico.`)) return;
 
   error.textContent = '';
   renderFeedProjection(animals);
@@ -1785,15 +1799,16 @@ function renderSuggestions(stops, routeGeometry) {
   });
   card.hidden = false;
   document.getElementById('suggestionsCount').textContent = `${suggestions.length} opção${suggestions.length === 1 ? '' : 'ões'}`;
-  list.innerHTML = suggestions.length ? suggestions.map(({ farm, distance }) => `<div class="suggestion-item"><div class="suggestion-info"><strong>${escapeHtml(farm.name)}</strong><span>${escapeHtml(farm.city)} · ${formatDistance(distance)} da rota</span></div><button class="suggestion-add" type="button" data-farm-name="${escapeHtml(farm.name)}">Adicionar B</button></div>`).join('') : '<div class="empty-results">Nenhum integrado encontrado em até 5 km da rota.</div>';
+  const nextLabel = getIntegratedLetter(selected.length + 1);
+  list.innerHTML = suggestions.length ? suggestions.map(({ farm, distance }) => `<div class="suggestion-item"><div class="suggestion-info"><strong>${escapeHtml(farm.name)}</strong><span>${escapeHtml(farm.city)} · ${formatDistance(distance)} da rota</span></div><button class="suggestion-add" type="button" data-farm-name="${escapeHtml(farm.name)}">Adicionar ${nextLabel}</button></div>`).join('') : '<div class="empty-results">Nenhum integrado encontrado em até 5 km da rota.</div>';
 }
 
 function renderRouteDetails(stops, legs, direct, combined) {
   const metricGrid = document.getElementById('metricGrid');
   const details = document.getElementById('routeDetails');
   const integratedDistance = legs.slice(1).reduce((total, leg) => total + (leg.distance || 0), 0);
-  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${escapeHtml(stops[stops.length - 1].name)}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre A e B</span></article>`;
-  const rows = legs.map((leg) => `<tr><td><span class="route-role ${leg.fromRole}">${leg.fromRole === 'origin' ? 'F' : leg.fromRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.from.name)}</td><td><span class="route-role ${leg.toRole}">${leg.toRole === 'candidate' ? 'B' : 'A'}</span>${escapeHtml(leg.to.name)}</td><td>${formatDistance(leg.distance)}</td><td>${formatDuration(leg.duration)}</td><td class="detour-value">${leg.toRole === 'candidate' ? `Distância entre pontos: ${formatDistance(leg.distance)}` : 'Destino final em A'}</td></tr>`).join('');
+  metricGrid.innerHTML = `<article class="metric-card"><span class="metric-label">Rota direta até A</span><strong>${formatDistance(direct.distance)}</strong><span class="metric-note">Fábrica → ${escapeHtml(stops[stops.length - 1].name)}</span></article><article class="metric-card"><span class="metric-label">Tempo até A</span><strong>${formatDuration(direct.duration)}</strong><span class="metric-note">Sem paradas intermediárias</span></article><article class="metric-card"><span class="metric-label">Distância entre integrados</span><strong>${formatDistance(integratedDistance)}</strong><span class="metric-note">Soma dos trechos entre integrados</span></article>`;
+  const rows = legs.map((leg) => `<tr><td><span class="route-role ${leg.fromRole}">${leg.fromRole === 'origin' ? 'F' : leg.from.label}</span>${escapeHtml(leg.from.name)}</td><td><span class="route-role ${leg.toRole}">${leg.to.label}</span>${escapeHtml(leg.to.name)}</td><td>${formatDistance(leg.distance)}</td><td>${formatDuration(leg.duration)}</td><td class="detour-value">${leg.toRole === 'candidate' ? `Distância entre pontos: ${formatDistance(leg.distance)}` : 'Destino final em A'}</td></tr>`).join('');
   details.innerHTML = `<table><thead><tr><th>Origem</th><th>Destino</th><th>Distância entre pontos</th><th>Tempo de viagem</th><th>Observação</th></tr></thead><tbody>${rows}</tbody></table>`;
   document.getElementById('analysisStatus').textContent = `${stops.length - 1} trecho${stops.length === 2 ? '' : 's'} calculado${stops.length === 2 ? '' : 's'}`;
 }
@@ -1815,13 +1830,20 @@ document.getElementById('suggestionsList').addEventListener('click', (event) => 
   selected.push(farm);
   renderSelected();
   renderMapSelection();
+  document.querySelectorAll('.suggestion-add:not(:disabled)').forEach((suggestionButton) => {
+    suggestionButton.textContent = `Adicionar ${getIntegratedLetter(selected.length + 1)}`;
+  });
   button.textContent = 'Adicionado';
   button.disabled = true;
 });
 
 function renderSelected() {
-  selectedList.innerHTML = selected.map((farm, index) => `<span class="selected-tag">${escapeHtml(farm.name)}<button type="button" data-index="${index}" aria-label="Remover ${escapeHtml(farm.name)}">×</button></span>`).join('');
+  selectedList.innerHTML = selected.map((farm, index) => `<span class="selected-tag"><strong>${getIntegratedLetter(index + 1)}</strong>${escapeHtml(farm.name)}<button type="button" data-index="${index}" aria-label="Remover ${escapeHtml(farm.name)}">×</button></span>`).join('');
   candidateCount.textContent = `${selected.length} selecionado${selected.length === 1 ? '' : 's'}`;
+  document.querySelectorAll('.candidate-input').forEach((input, index) => {
+    const icon = input.closest('.candidate-entry').querySelector('.candidate-icon');
+    icon.textContent = getIntegratedLetter(selected.length + index + 1);
+  });
   selectedList.querySelectorAll('button').forEach((button) => {
     button.addEventListener('click', () => { selected.splice(Number(button.dataset.index), 1); renderSelected(); renderMapSelection(); });
   });
@@ -1850,8 +1872,9 @@ primaryInput.addEventListener('input', renderMapSelection);
 document.getElementById('addSearchField').addEventListener('click', () => {
   const field = document.createElement('div');
   field.className = 'candidate-entry';
-  field.innerHTML = '<div class="select-wrap autocomplete-wrap"><span class="field-icon candidate-icon">+</span><input class="candidate-input" list="farmOptions" autocomplete="off" placeholder="Digite outro integrado"></div><button class="add-button add-candidate" type="button" title="Adicionar integrado" aria-label="Adicionar integrado">+</button>';
+  field.innerHTML = '<div class="select-wrap autocomplete-wrap"><span class="field-icon candidate-icon">B</span><input class="candidate-input" list="farmOptions" autocomplete="off" placeholder="Digite outro integrado"></div><button class="add-button add-candidate" type="button" title="Adicionar integrado" aria-label="Adicionar integrado">+</button>';
   document.getElementById('candidateFields').appendChild(field);
+  renderSelected();
   field.querySelector('input').focus();
 });
 
@@ -1930,7 +1953,7 @@ document.getElementById('analyzeRoute').addEventListener('click', async () => {
     const directResult = await drawRoute(primaryPath, alternatePath ? 'route-primary' : 'route-combined');
     const combinedResult = alternatePath ? await drawRoute(alternatePath, 'route-combined') : directResult;
     const alternativeResult = await drawAlternativeRoute(alternatePath || primaryPath, 'route-alternative');
-    const stops = [{ name: 'Fábrica de ração', coords: origin, role: 'origin' }, ...selectedCandidates.map((farm) => ({ ...farm, role: 'candidate' })), { ...primaryFarm, role: 'primary' }];
+    const stops = [{ name: 'Fábrica de ração', coords: origin, role: 'origin' }, ...selectedCandidates.map((farm, index) => ({ ...farm, role: 'candidate', label: getIntegratedLetter(index + 1) })), { ...primaryFarm, role: 'primary', label: 'A' }];
     renderRoutePoints(primaryFarm, selectedCandidates);
     const legs = [];
     for (let index = 0; index < stops.length - 1; index += 1) {
